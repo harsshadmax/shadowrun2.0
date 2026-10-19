@@ -57,6 +57,8 @@ def test_malicious_fixture_findings_end_to_end():
     run = pipeline.run_action("report-export-pro")
     assert run["error"] is None, run
     assert {"CANARY_READ", "NET_OUTBOUND", "CANARY_EXFIL"} <= rules(run)
+    assert run["decision"] == "BLOCK" and run["decision_ms"] > 0
+    assert {"block_exfil", "block_secrets"} <= set(run["decision_obj"].matched_rules)
 
 
 def test_benign_packages_have_no_findings():
@@ -64,16 +66,26 @@ def test_benign_packages_have_no_findings():
         run = pipeline.run_action(spec)
         assert run["error"] is None, run
         assert run["findings"] == [], (spec, run["findings"])
+        assert run["decision"] == "ALLOW"
 
 
 def test_tampered_pin_is_rejected():
     run = pipeline.run_action("csvtoolkit", pin_sha256="0" * 64)
     assert "HASH_MISMATCH" in rules(run)
+    assert run["decision"] == "BLOCK"
 
 
 def test_unknown_package_fails_closed():
     run = pipeline.run_action("does-not-exist")
-    assert run["error"] and run["state"] == "ERROR"
+    assert run["error"] and run["decision"] == "ESCALATE"
+
+
+def test_doctor_failure_refuses_to_run(monkeypatch):
+    def boom(force=False):
+        raise pipeline.DoctorFailed("doctor failed")
+    monkeypatch.setattr(pipeline, "ensure_doctor", boom)
+    run = pipeline.run_action("csvtoolkit")
+    assert run["decision"] == "BLOCK" and run["findings"] == []
 
 
 def test_audit_chain_after_runs():

@@ -5,7 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import audit, canary, config, db, detector, fetcher, monitor, sandbox
+from . import audit, canary, config, db, detector, fetcher, monitor, policy, sandbox
 from .models import Finding
 
 _doctor_lock = threading.Lock()
@@ -70,6 +70,7 @@ def run_action(spec: str, agent_id: str = "cli", setup: str = "shadowrun", pin_s
     cs = None
     fetched = None
     error = None
+    block_on_error = False
     try:
         ensure_doctor()
         emit("phase", {"phase": "fetch", "state": "start"})
@@ -125,15 +126,26 @@ def run_action(spec: str, agent_id: str = "cli", setup: str = "shadowrun", pin_s
         audit.append("FINDINGS_RECORDED", run_id, {"count": len(findings), "rules": [f.rule_id for f in findings]})
         db.update_run(run_id, state="ANALYZED", report_json=json.dumps(report),
                       phase_ms_json=json.dumps(phases))
-    except Exception as e:  # fail closed: caller sees `error` and must not allow
+    except Exception as e:  # fail closed: an error never yields ALLOW
         error = f"{type(e).__name__}: {e}"
-        db.update_run(run_id, state="ERROR", decision_reason=error, phase_ms_json=json.dumps(phases))
+        block_on_error = isinstance(e, DoctorFailed)
+        db.update_run(run_id, state="ERROR", phase_ms_json=json.dumps(phases))
     finally:
         if cs is not None:
             canary.cleanup_home(cs)  # traces under .data/trace/<run> are kept as evidence
-    elapsed = (time.perf_counter() - t_recv) * 1000
+
+    t = time.perf_counter()
+    decision = policy.decide_error(error, block=block_on_error) if error else policy.decide(findings)
+    phases["decide_ms"] = (time.perf_counter() - t) * 1000
+    decision_ms = (time.perf_counter() - t_recv) * 1000  # receive-to-decision
+    db.update_run(run_id, state="DECIDED", decision=decision.decision, decision_reason=decision.reason,
+                  decision_ms=decision_ms, phase_ms_json=json.dumps(phases))
+    audit.append("DECISION_MADE", run_id, {"decision": decision.decision, "matched_rules": decision.matched_rules,
+                                           "decision_ms": round(decision_ms, 1), "error": error})
+    emit("decision", {"decision": decision.decision, "reason": decision.reason,
+                      "matched_rules": decision.matched_rules, "decision_ms": decision_ms})
     run = db.get_run(run_id)
     run["error"] = error
-    run["findings_objs"] = findings
-    run["elapsed_ms"] = elapsed
+    run["decision_obj"] = decision
+    run["elapsed_ms"] = decision_ms
     return run
