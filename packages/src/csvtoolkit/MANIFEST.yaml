@@ -1,0 +1,8 @@
+id: B2
+label: Plain setup.py sdist
+name: csvtoolkit
+version: 1.0.0
+form: sdist
+expected_decision: ALLOW
+expected_rules: []
+description: SIMULATED benign fixture. Plain setup.py sdist.

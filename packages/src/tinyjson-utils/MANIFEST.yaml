@@ -1,0 +1,8 @@
+id: B1
+label: Pure-Python wheel
+name: tinyjson-utils
+version: 1.0.0
+form: wheel
+expected_decision: ALLOW
+expected_rules: []
+description: SIMULATED benign fixture. Pure Python wheel.

@@ -1,0 +1,8 @@
+id: B3
+label: Benign setup.py that runs git (false-positive test)
+name: gitversion
+version: 1.0.0
+form: sdist
+expected_decision: ALLOW
+expected_rules: []
+description: SIMULATED benign fixture. setup.py runs git rev-parse (reads the .gitconfig decoy) and falls back gracefully.

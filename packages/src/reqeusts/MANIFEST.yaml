@@ -1,0 +1,8 @@
+id: M2
+label: Typosquat with persistence and exfiltration
+name: reqeusts
+version: 2.31.0
+form: sdist
+expected_decision: BLOCK
+expected_rules: [PERSISTENCE_WRITE, CANARY_READ, NET_OUTBOUND, CANARY_EXFIL]
+description: SIMULATED malicious fixture. Typosquat of requests; appends to ~/.bashrc, reads fake .env and AWS credentials, POSTs them to the sandbox sink.

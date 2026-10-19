@@ -1,0 +1,8 @@
+id: M1
+label: Credential stealer in setup.py
+name: report-export-pro
+version: 1.0.0
+form: sdist
+expected_decision: BLOCK
+expected_rules: [CANARY_READ, NET_OUTBOUND, CANARY_EXFIL]
+description: SIMULATED malicious fixture. setup.py reads the fake ~/.ssh/id_rsa and POSTs it to the sandbox sink.
