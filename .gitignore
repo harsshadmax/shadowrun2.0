@@ -1,0 +1,8 @@
+.data/
+.venv/
+__pycache__/
+*.egg-info/
+shadowrun.db*
+packages/dist/*
+!packages/dist/.gitkeep
+.env
