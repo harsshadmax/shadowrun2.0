@@ -40,12 +40,13 @@ def strace_prefix(out="/out/trace.log", seccomp: bool | None = None) -> str:
     return f"strace -f {flag}-ttt -yy -s 200 -e trace={STRACE_SYSCALLS} -o {out} "
 
 
-def install_command(name: str, version: str, sha256: str, seccomp: bool | None = None) -> str:
-    """Offline hash-pinned install under strace (section 4.2). req.txt is written first."""
+def install_command(name: str, version: str, sha256: str, seccomp: bool | None = None, trace: bool = True) -> str:
+    """Offline hash-pinned install, under strace unless trace=False (section 4.2). req.txt is written first."""
     req = f"{name}=={version} --hash=sha256:{sha256}"
     pip = ("pip install --no-index --no-build-isolation --disable-pip-version-check --no-cache-dir -q "
            "--find-links /cache --no-deps --require-hashes -r /work/req.txt --target /work/site")
-    return f"printf '%s\\n' '{req}' > /work/req.txt && {strace_prefix(seccomp=seccomp)}{pip}"
+    prefix = strace_prefix(seccomp=seccomp) if trace else ""
+    return f"printf '%s\\n' '{req}' > /work/req.txt && {prefix}{pip}"
 
 
 def run_container(cmd: str, *, analysis: bool, home: Path | None = None, out_dir: Path | None = None,

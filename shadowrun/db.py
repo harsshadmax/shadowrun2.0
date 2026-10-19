@@ -92,6 +92,18 @@ def get_run(run_id: str) -> dict | None:
         return out
 
 
+def demo_reset() -> None:
+    """Clear runs, findings, agent events, the sink log and old traces. The audit log is kept."""
+    import shutil
+    with closing(connect()) as c:
+        for t in ("runs", "findings", "agent_events"):
+            c.execute(f"DELETE FROM {t}")
+        c.commit()
+    if config.SINK_LOG.exists():
+        config.SINK_LOG.write_text("")
+    shutil.rmtree(config.TRACE_DIR, ignore_errors=True)
+
+
 def list_runs(limit: int = 50) -> list[dict]:
     with closing(connect()) as c:
         return [dict(r) for r in c.execute("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))]

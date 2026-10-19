@@ -119,16 +119,22 @@ CHECKS = [
 ]
 
 
-def run_doctor(verbose=True) -> bool:
-    all_ok = True
+def run_checks() -> list[dict]:
+    out = []
     for i, (name, fn) in enumerate(CHECKS, 1):
         try:
             ok, detail = fn()
         except Exception as e:
             ok, detail = False, f"{type(e).__name__}: {e}"
-        all_ok &= bool(ok)
-        if verbose:
-            print(f"{i}. [{'PASS' if ok else 'FAIL'}] {name} -- {detail}")
+        out.append({"n": i, "name": name, "ok": bool(ok), "detail": detail})
+    return out
+
+
+def run_doctor(verbose=True) -> bool:
+    checks = run_checks()
+    all_ok = all(c["ok"] for c in checks)
     if verbose:
+        for c in checks:
+            print(f"{c['n']}. [{'PASS' if c['ok'] else 'FAIL'}] {c['name']} -- {c['detail']}")
         print("DOCTOR:", "ALL PASS" if all_ok else "FAILED (runs refused)")
     return all_ok

@@ -1,5 +1,6 @@
 """pip install <spec> pipeline (blueprint 2.2). Any error ends in a non-ALLOW outcome (fail closed)."""
 import json
+import re
 import threading
 import time
 import uuid
@@ -55,12 +56,65 @@ def hash_mismatch_in(logs: str) -> bool:
     return "do not match the hashes" in logs.lower()
 
 
+def summarize(run: dict) -> dict:
+    """JSON-safe public view of a run (no pydantic objects, no raw traces)."""
+    d = run.get("decision_obj")
+    return {
+        "run_id": run["id"], "spec": run.get("spec"), "package": run.get("package_name"),
+        "version": run.get("package_version"), "sha256": run.get("sha256"), "setup": run.get("setup"),
+        "decision": run.get("decision"), "label": d.label if d else None,
+        "reason": run.get("decision_reason"), "matched_rules": d.matched_rules if d else [],
+        "confidence": "limited", "findings": run.get("findings", []),
+        "decision_ms": run.get("decision_ms"), "phases": json.loads(run.get("phase_ms_json") or "{}"),
+        "state": run.get("state"), "error": run.get("error"),
+    }
+
+
+def run_exposed(spec: str, agent_id: str = "demo", setup: str = "no_guard", emit=None,
+                scenario_id: str | None = None, run_id: str | None = None) -> dict:
+    """Baseline / unguarded half of the demo: install in an `exposed` container (no strace, no analysis).
+    Leaks are measured only by canary tokens reaching the sink."""
+    emit = emit or (lambda kind, data: None)
+    run_id = run_id or uuid.uuid4().hex[:12]
+    db.init_db()
+    db.insert_run(run_id, agent_id=agent_id, package_name=spec, setup=setup, state="RECEIVED", scenario_id=scenario_id)
+    cs = None
+    error = None
+    leaked: list[str] = []
+    sink_events: list[dict] = []
+    try:
+        ensure_doctor()  # same isolation guarantees apply to the exposed container
+        fetched = fetcher.fetch(spec)
+        db.update_run(run_id, package_name=fetched.name, package_version=fetched.version, sha256=fetched.sha256)
+        cs = canary.create_home(run_id)
+        sink_off = _sink_size()
+        emit("phase", {"phase": "install", "state": "start"})
+        res = sandbox.run_container(sandbox.install_command(fetched.name, fetched.version, fetched.sha256, trace=False),
+                                    analysis=False, home=cs.home, cache_dir=Path(fetched.cache_dir))
+        time.sleep(0.3)
+        sink_events = _sink_events(sink_off, res.container_ip)
+        needle = f"CANARY-{cs.run_token}-"
+        blob = json.dumps(sink_events, default=str)
+        leaked = sorted(set(re.findall(rf"{re.escape(needle)}\w+", blob)))
+        db.update_run(run_id, container_ip=res.container_ip, state="DECIDED", decision="NONE",
+                      decision_reason=f"{setup}: install completed unguarded; {len(leaked)} canary token(s) leaked",
+                      report_json=json.dumps({"exit_code": res.exit_code, "leaked_tokens": leaked}))
+        emit("phase", {"phase": "install", "state": "done"})
+    except Exception as e:
+        error = f"{type(e).__name__}: {e}"
+        db.update_run(run_id, state="ERROR", decision_reason=error)
+    finally:
+        if cs is not None:
+            canary.cleanup_home(cs)
+    return {"run_id": run_id, "setup": setup, "leaked_tokens": leaked, "sink_events": sink_events, "error": error}
+
+
 def run_action(spec: str, agent_id: str = "cli", setup: str = "shadowrun", pin_sha256: str | None = None,
-               emit=None, scenario_id: str | None = None) -> dict:
-    """Fetch, hash, analyze in the sandbox, record. Returns the run dict (decision applied by the caller/policy)."""
+               emit=None, scenario_id: str | None = None, run_id: str | None = None) -> dict:
+    """Fetch, hash, analyze in the sandbox, record, decide. Returns the run dict."""
     emit = emit or (lambda kind, data: None)
     t_recv = time.perf_counter()
-    run_id = uuid.uuid4().hex[:12]
+    run_id = run_id or uuid.uuid4().hex[:12]
     phases: dict = {}
     db.init_db()
     db.insert_run(run_id, agent_id=agent_id, package_name=spec, setup=setup, state="RECEIVED",
@@ -145,6 +199,7 @@ def run_action(spec: str, agent_id: str = "cli", setup: str = "shadowrun", pin_s
     emit("decision", {"decision": decision.decision, "reason": decision.reason,
                       "matched_rules": decision.matched_rules, "decision_ms": decision_ms})
     run = db.get_run(run_id)
+    run["spec"] = spec
     run["error"] = error
     run["decision_obj"] = decision
     run["elapsed_ms"] = decision_ms
