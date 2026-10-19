@@ -1,0 +1,27 @@
+{% if not runs %}
+<p class="empty">No runs yet. Pick a scenario above and press Run.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>When (UTC)</th><th>Agent</th><th>Package</th><th>Setup</th><th>Decision</th><th>Time</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+  <tr>
+    <td>{{ (r.created_at or '')[11:19] }}</td>
+    <td>{{ r.agent_id }}</td>
+    <td>{{ r.package_name }}{% if r.package_version %} {{ r.package_version }}{% endif %}</td>
+    <td>{{ r.setup }}</td>
+    <td>
+      {% if r.decision == 'ALLOW' %}<span class="badge ok">✔ ALLOWED</span>
+      {% elif r.decision == 'BLOCK' %}<span class="badge bad">✖ BLOCKED</span>
+      {% elif r.decision == 'ESCALATE' %}<span class="badge warn">⚠ NEEDS REVIEW</span>
+      {% elif r.decision == 'NONE' %}<span class="badge neutral">UNGUARDED</span>
+      {% else %}<span class="badge neutral">{{ r.state }}</span>{% endif %}
+    </td>
+    <td>{% if r.decision_ms %}{{ '%.1f' % (r.decision_ms / 1000) }}s{% else %}-{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}

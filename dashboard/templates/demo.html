@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Split-Screen Demo | Shadow-Run{% endblock %}
+{% block main %}
+<h1>Split-Screen Demo</h1>
+<p class="lead">The same agent task, with and without the gate. Task: <em>"Add CSV export to the report module."</em> Agent and package are SIMULATED.</p>
+
+<div class="toolbar">
+  <button id="start" type="button">Start demo</button>
+  <button id="reset" type="button" class="secondary">Reset demo</button>
+  <span id="demo-status" class="muted" role="status"></span>
+</div>
+<p id="demo-error" class="error" role="alert" hidden></p>
+
+<div class="split">
+  <section class="card panel" id="left">
+    <h2>Without Shadow-Run</h2>
+    <p class="muted">The package installs straight into an environment with the developer's (fake) secrets.</p>
+    <div id="left-body"><p class="empty">Press <strong>Start demo</strong>.</p></div>
+  </section>
+
+  <section class="card panel" id="right">
+    <h2>With Shadow-Run</h2>
+    <p class="muted">The install is analyzed in a sandbox first. The agent reads the verdict and adapts.</p>
+    <div id="right-verdict" class="verdict idle" role="status">
+      <span class="icon" aria-hidden="true">•</span><span class="text">Waiting for the agent.</span>
+    </div>
+    <ul id="right-findings" class="findings"></ul>
+    <h3>Agent transcript <span class="pill sim small">SIMULATED AGENT</span></h3>
+    <ol id="transcript" class="transcript"><li class="empty">No agent activity yet.</li></ol>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Benchmark</h2>
+  <div id="bench"><p class="empty">Loading benchmark…</p></div>
+  <div class="chart-wrap"><canvas id="latency-chart" height="160" aria-label="Median latency per phase"></canvas></div>
+</section>
+
+<section class="card">
+  <h2>Audit log</h2>
+  <p class="muted">Every decision is written to an insert-only, hash-chained log.</p>
+  <button type="button" class="secondary" hx-get="/ui/audit-verify" hx-target="#audit-result" hx-swap="innerHTML">Verify chain</button>
+  <span id="audit-result" class="audit-result" aria-live="polite"></span>
+</section>
+{% endblock %}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="demo-token" content="{{ token }}">
+<title>{% block title %}Shadow-Run{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/vendor/htmx.min.js"></script>
+<script src="/static/vendor/chart.umd.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body data-page="{{ page }}">
+<header class="strip">
+  <div class="strip-inner">
+    <a class="brand" href="/">Shadow-Run</a>
+    <nav>
+      <a href="/" {% if page == 'gate' %}aria-current="page"{% endif %}>Live Gate</a>
+      <a href="/demo" {% if page == 'demo' %}aria-current="page"{% endif %}>Split-Screen Demo</a>
+    </nav>
+    <span class="spacer"></span>
+    <span id="doctor" hx-get="/ui/doctor" hx-trigger="load, every 30s" hx-swap="innerHTML">
+      <span class="pill neutral">Doctor: checking…</span>
+    </span>
+    <span class="pill sim">SIMULATED SCENARIOS ONLY</span>
+  </div>
+</header>
+<main>{% block main %}{% endblock %}</main>
+<footer>Shadow-Run reduces the chance and blast radius of a malicious install. It does not prove safety.</footer>
+</body>
+</html>

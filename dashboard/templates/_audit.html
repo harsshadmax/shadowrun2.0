@@ -1,0 +1,5 @@
+{% if res.ok %}
+<span class="badge ok">✔ Chain OK: {{ res.checked }} entries verified</span>
+{% else %}
+<span class="badge bad">✖ Chain BROKEN at entry {{ res.broken_id }} ({{ res.checked }} verified before it)</span>
+{% endif %}

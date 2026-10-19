@@ -226,3 +226,21 @@ def demo_reset():
     db.demo_reset()
     STREAMS.clear()
     return {"ok": True}
+
+
+@app.get(f"{API}/eval/results")
+def eval_results():
+    """Latest benchmark summary written by `shadowrun eval` (step 8): {available, disclaimer, rows, phases}."""
+    p = config.ROOT / "eval" / "results" / "latest.json"
+    if not p.exists():
+        return {"available": False}
+    return json.loads(p.read_text())
+
+
+# Dashboard (pages + fragments + static files); imported last because ui reads api.TOKEN lazily.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from . import ui  # noqa: E402
+
+app.include_router(ui.router)
+app.mount("/static", StaticFiles(directory=str(config.ROOT / "dashboard" / "static")), name="static")
