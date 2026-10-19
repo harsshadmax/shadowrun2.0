@@ -228,13 +228,34 @@ def demo_reset():
     return {"ok": True}
 
 
+EVAL_STATE = {"running": False}
+
+
+def _eval_worker(repeats: int):
+    try:
+        from eval.run_eval import main as eval_main
+        with RUN_LOCK:  # the benchmark owns the sandbox until it finishes
+            eval_main(repeats)
+    finally:
+        EVAL_STATE["running"] = False
+
+
+@app.post(f"{API}/eval/run", dependencies=[Depends(need_token)])
+def eval_run(repeats: int = 1):
+    if EVAL_STATE["running"]:
+        raise HTTPException(409, "Benchmark already running")
+    EVAL_STATE["running"] = True
+    threading.Thread(target=_eval_worker, args=(min(max(repeats, 1), 5),), daemon=True).start()
+    return JSONResponse({"started": True, "repeats": min(max(repeats, 1), 5)}, status_code=202)
+
+
 @app.get(f"{API}/eval/results")
 def eval_results():
-    """Latest benchmark summary written by `shadowrun eval` (step 8): {available, disclaimer, rows, phases}."""
+    """Latest benchmark summary written by `shadowrun eval`: {available, disclaimer, rows, phases, ...}."""
     p = config.ROOT / "eval" / "results" / "latest.json"
-    if not p.exists():
-        return {"available": False}
-    return json.loads(p.read_text())
+    data = json.loads(p.read_text()) if p.exists() else {"available": False}
+    data["running"] = EVAL_STATE["running"]
+    return data
 
 
 # Dashboard (pages + fragments + static files); imported last because ui reads api.TOKEN lazily.
