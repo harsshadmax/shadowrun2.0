@@ -10,11 +10,13 @@
     Object.keys(attrs || {}).forEach(function (k) {
       if (k === "class") el.className = attrs[k]; else el.setAttribute(k, attrs[k]);
     });
-    for (var i = 2; i < arguments.length; i++) {
-      var c = arguments[i];
-      if (c == null) continue;
-      el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-    }
+    (function add(list) {
+      list.forEach(function (c) {
+        if (c == null) return;
+        if (Array.isArray(c)) { add(c); return; }
+        el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+      });
+    })(Array.prototype.slice.call(arguments, 2));
     return el;
   }
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
@@ -63,7 +65,29 @@
     list.forEach(function (f) { ul.appendChild(findingItem(f)); });
   }
 
-  /* ---------- Live Gate ---------- */
+  function refreshAll() { document.body.dispatchEvent(new Event("refresh")); }
+
+  /* ---------- Overview: scan dialog + agent button ---------- */
+  function initOverview() {
+    var dlg = $("#scan");
+    $("#open-scan").addEventListener("click", function () { dlg.showModal(); });
+    $("#close-scan").addEventListener("click", function () { dlg.close(); });
+    dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener("close", refreshAll);
+
+    // the agent card is re-rendered by htmx, so listen on the document
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest && e.target.closest("#run-agent");
+      if (!btn) return;
+      btn.disabled = true;
+      api("/api/v1/agent/run", { method: "POST", body: {} }).then(function () {
+        var n = 0, t = setInterval(function () { refreshAll(); if (++n > 20) clearInterval(t); }, 2000);
+      }).catch(function () { btn.disabled = false; });
+    });
+    initGate();
+  }
+
+  /* ---------- Live scan (inside the dialog) ---------- */
   function initGate() {
     var run = $("#run"), spec = $("#spec"), sel = $("#scenario"), err = $("#run-error");
     var verdict = $("#verdict"), findings = $("#findings");
@@ -102,7 +126,7 @@
           setVerdict(verdict, d.decision, null, " " + d.reason + " (confidence: limited)");
           if (!count) fillFindings(findings, [], "No findings in the tested run.");
         });
-        es.addEventListener("end", function () { es.close(); run.disabled = false; document.body.dispatchEvent(new Event("refresh")); });
+        es.addEventListener("end", function () { es.close(); run.disabled = false; refreshAll(); });
         es.onerror = function () {
           es.close(); run.disabled = false;
           if (!finished) {
@@ -145,7 +169,8 @@
       chart = new Chart($("#latency-chart"), {
         type: "bar",
         data: { labels: labels.map(function (l) { return l.replace("_ms", ""); }),
-                datasets: [{ label: "Median seconds per phase (Shadow-Run)", data: vals, backgroundColor: cs.getPropertyValue("--accent").trim() }] },
+                datasets: [{ label: "Median seconds per phase (Shadow-Run)", data: vals, borderRadius: 8,
+                             backgroundColor: cs.getPropertyValue("--coral").trim() }] },
         options: { responsive: true, plugins: { legend: { labels: { color: cs.getPropertyValue("--text").trim() } } },
                    scales: { x: { ticks: { color: cs.getPropertyValue("--muted").trim() } }, y: { beginAtZero: true, ticks: { color: cs.getPropertyValue("--muted").trim() } } } }
       });
@@ -194,8 +219,8 @@
       });
     }
 
-    function pollAgent() {
-      var seen = 0; clear(tr);
+    function pollAgent(baseline) {
+      var seen = baseline || 0; clear(tr);
       return new Promise(function (resolve, reject) {
         (function tick() {
           api("/api/v1/agent/events?since_id=" + seen).then(function (d) {
@@ -204,7 +229,7 @@
               tr.appendChild(h("li", {}, h("span", { "class": "kind" }, ev.kind), ev.message));
               if (ev.kind === "BLOCKED_NOTICE" && ev.run_id) showRun(ev.run_id);
             });
-            if (!d.running && seen) resolve(); else setTimeout(tick, 1000);
+            if (!d.running && seen > (baseline || 0)) resolve(); else setTimeout(tick, 1000);
           }).catch(reject);
         })();
       });
@@ -217,8 +242,11 @@
       api("/api/v1/demo/unguarded", { method: "POST", body: { spec: "report-export-pro" } }).then(function (r) {
         renderLeft(r); status.textContent = "Agent is working…";
         setVerdict(rv, "loading", "Analyzing…", " The agent submitted its install to the gate.");
-        return api("/api/v1/agent/run", { method: "POST", body: {} });
-      }).then(pollAgent).then(function () {
+        return api("/api/v1/agent/events?since_id=0");
+      }).then(function (d) {
+        var baseline = d.events.length ? d.events[d.events.length - 1].id : 0;  // only show this run's events
+        return api("/api/v1/agent/run", { method: "POST", body: {} }).then(function () { return pollAgent(baseline); });
+      }).then(function () {
         status.textContent = "Done."; document.body.dispatchEvent(new Event("refresh"));
       }).catch(function (e) { status.textContent = ""; showError(err, e); setVerdict(rv, "idle", "Demo stopped.", " " + e.message); })
         .then(function () { start.disabled = false; reset.disabled = false; });
@@ -227,7 +255,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     var page = document.body.dataset.page;
-    if (page === "gate") initGate();
+    if (page === "overview") initOverview();
     if (page === "demo") initDemo();
   });
 })();

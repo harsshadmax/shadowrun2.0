@@ -1,0 +1,39 @@
+<div class="auto" hx-get="/ui/heatmap?tab={{ h.tab }}" hx-trigger="refresh from:body" hx-target="#analytic" hx-swap="innerHTML"></div>
+<div class="card-head">
+  <h2>Detection matrix</h2>
+  <div class="seg" role="tablist" aria-label="Matrix view">
+    <button type="button" role="tab" {% if h.tab == 'findings' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}
+            hx-get="/ui/heatmap?tab=findings" hx-target="#analytic" hx-swap="innerHTML">Findings</button>
+    <button type="button" role="tab" {% if h.tab == 'decisions' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}
+            hx-get="/ui/heatmap?tab=decisions" hx-target="#analytic" hx-swap="innerHTML">Decisions</button>
+  </div>
+</div>
+
+<div class="trio">
+  <div><span class="trio-num">{{ k.fastest|secs }}</span><span class="trio-label">Fastest decision</span></div>
+  <div><span class="trio-num">{{ k.median|secs }}</span><span class="trio-label">Median decision</span></div>
+  <div><span class="trio-num">{{ k.slowest|secs }}</span><span class="trio-label">Slowest decision</span></div>
+</div>
+
+{% if not h.cols %}
+<p class="empty">No scans yet. Press Run scan to fill the matrix.</p>
+{% else %}
+<div class="heat" style="--cols: {{ h.cols|length }}" role="table" aria-label="{{ 'Runs in which each detector rule fired, per package' if h.tab == 'findings' else 'Decisions per package' }}">
+  {% for row in h.rows %}
+  {% set ri = loop.index0 %}
+  <div class="heat-row" role="row">
+    <span class="heat-label" role="rowheader">{{ row }}</span>
+    {% for col in h.cols %}
+    {% set n = h.grid[ri][loop.index0] %}
+    {% set lv = 0 if n == 0 else ([4, 1 + (3 * n // h.max)]|min) %}
+    <span class="cell l{{ lv }}" role="cell" title="{{ row }} · {{ col }}: {{ n }}">{% if n %}{{ n }}{% endif %}</span>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <div class="heat-row heat-cols" role="row">
+    <span class="heat-label"></span>
+    {% for col in h.cols %}<span class="col-label" role="columnheader" title="{{ col }}">{{ col }}</span>{% endfor %}
+  </div>
+</div>
+<p class="foot-note">{{ 'Number of runs in which a rule fired. Darker means fewer, brighter means more.' if h.tab == 'findings' else 'Number of runs per decision.' }}</p>
+{% endif %}

@@ -1,0 +1,15 @@
+<div class="agent-row">
+  <span class="avatar"><svg class="i" aria-hidden="true"><use href="#i-bot"/></svg></span>
+  <div class="agent-meta">
+    <span class="muted small">Task: Add CSV export</span>
+    <strong>Scripted agent <span class="chip sim small">SIMULATED AGENT</span></strong>
+  </div>
+  <button type="button" class="round" id="run-agent" aria-label="Run the simulated agent" {% if running %}disabled{% endif %}><svg class="i" aria-hidden="true"><use href="#i-play"/></svg></button>
+</div>
+{% if events %}
+<ul class="agent-log">
+  {% for e in events %}<li><span class="kind">{{ e.kind }}</span>{{ e.message }}</li>{% endfor %}
+</ul>
+{% else %}
+<p class="empty">No agent run yet. Press play to watch it propose a package and react to the verdict.</p>
+{% endif %}

@@ -1,0 +1,41 @@
+{% if not run %}
+<div class="card-head"><h2>Run detail</h2></div>
+<p class="empty">No runs yet. Press Run scan, then pick a run to see its timeline and evidence.</p>
+{% else %}
+<div class="card-head">
+  <h2>Run detail</h2>
+  {% if run.decision == 'ALLOW' %}<span class="chip ok">Allowed</span>
+  {% elif run.decision == 'BLOCK' %}<span class="chip bad">Blocked</span>
+  {% elif run.decision == 'ESCALATE' %}<span class="chip warn">Needs review</span>
+  {% elif run.decision == 'NONE' %}<span class="chip neutral">Unguarded</span>
+  {% else %}<span class="chip neutral">{{ run.state }}</span>{% endif %}
+</div>
+<div class="kv"><span>Run</span><b class="mono">#{{ run.id }}</b></div>
+<div class="kv"><span>Package</span><b>{{ run.package_name }}{% if run.package_version %} {{ run.package_version }}{% endif %}</b></div>
+<div class="kv"><span>SHA-256</span><b class="mono">{{ (run.sha256 or '-')[:16] }}</b></div>
+<div class="kv"><span>Setup</span><b>{{ run.setup }}</b></div>
+
+{% if run.timeline %}
+<ol class="timeline">
+  {% for t in run.timeline %}
+  <li><span class="t-dot"></span><span class="t-label">{{ t.label }}</span><span class="t-ms">{{ t.ms|secs }}</span></li>
+  {% endfor %}
+</ol>
+{% endif %}
+
+{% if run.findings %}
+<h3>Evidence</h3>
+<ul class="findings compact">
+  {% for f in run.findings[:4] %}
+  <li><span class="sev {{ f.severity }}">{{ f.severity }}</span><span class="rule">{{ f.rule_id }}</span>{{ f.message }}</li>
+  {% endfor %}
+  {% if run.findings|length > 4 %}<li class="empty">+ {{ run.findings|length - 4 }} more</li>{% endif %}
+</ul>
+{% elif run.decision %}
+<p class="empty">No findings in the tested run.</p>
+{% endif %}
+
+<div class="kv"><span>Decision time</span><b>{{ run.decision_ms|secs }}</b></div>
+<div class="kv"><span>Confidence</span><b>limited</b></div>
+{% if run.decision_reason %}<p class="reason">{{ run.decision_reason }}</p>{% endif %}
+{% endif %}

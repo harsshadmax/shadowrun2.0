@@ -1,23 +1,45 @@
-{% if not runs %}
-<p class="empty">No runs yet. Pick a scenario above and press Run.</p>
+{% macro decision_chip(d, state) -%}
+  {%- if d == 'ALLOW' %}<span class="chip ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Allowed</span>
+  {%- elif d == 'BLOCK' %}<span class="chip bad"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>Blocked</span>
+  {%- elif d == 'ESCALATE' %}<span class="chip warn"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>Needs review</span>
+  {%- elif d == 'NONE' %}<span class="chip neutral">Unguarded</span>
+  {%- else %}<span class="chip neutral">{{ state }}</span>{% endif -%}
+{%- endmacro %}
+<div class="auto" hx-get="/ui/runs?f={{ p.filter }}&page={{ p.page }}" hx-trigger="refresh from:body, every 15s" hx-target="#activity" hx-swap="innerHTML"></div>
+<div class="card-head">
+  <h2>Recent activity</h2>
+  <div class="tabs" role="tablist" aria-label="Filter runs">
+    {% for key, label in [('all', 'All'), ('allow', 'Allowed'), ('block', 'Blocked'), ('review', 'Needs review'), ('unguarded', 'Unguarded')] %}
+    <button type="button" role="tab" class="{{ 'on' if p.filter == key else '' }}" aria-selected="{{ 'true' if p.filter == key else 'false' }}"
+            hx-get="/ui/runs?f={{ key }}&page=1" hx-target="#activity" hx-swap="innerHTML">{{ label }} <span class="count">{{ p.counts[key] }}</span></button>
+    {% endfor %}
+  </div>
+  <div class="pager">
+    <span>{{ p.first }}-{{ p.last }} of {{ p.total }}</span>
+    <button type="button" class="icon-btn" aria-label="Previous page" {% if p.page <= 1 %}disabled{% endif %}
+            hx-get="/ui/runs?f={{ p.filter }}&page={{ p.page - 1 }}" hx-target="#activity" hx-swap="innerHTML"><svg class="i" aria-hidden="true"><use href="#i-left"/></svg></button>
+    <button type="button" class="icon-btn" aria-label="Next page" {% if p.page >= p.pages %}disabled{% endif %}
+            hx-get="/ui/runs?f={{ p.filter }}&page={{ p.page + 1 }}" hx-target="#activity" hx-swap="innerHTML"><svg class="i" aria-hidden="true"><use href="#i-right"/></svg></button>
+  </div>
+</div>
+
+{% if not p.rows %}
+<p class="empty">{% if p.filter == 'all' %}No runs yet. Press Run scan to start.{% else %}No runs match this filter.{% endif %}</p>
 {% else %}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>When (UTC)</th><th>Agent</th><th>Package</th><th>Setup</th><th>Decision</th><th>Time</th></tr></thead>
+  <thead><tr><th>Run</th><th>Package</th><th>Version</th><th>Setup</th><th>Agent</th><th>Started (UTC)</th><th>Findings</th><th>Decision</th><th>Time</th></tr></thead>
   <tbody>
-  {% for r in runs %}
-  <tr>
-    <td>{{ (r.created_at or '')[11:19] }}</td>
-    <td>{{ r.agent_id }}</td>
-    <td>{{ r.package_name }}{% if r.package_version %} {{ r.package_version }}{% endif %}</td>
+  {% for r in p.rows %}
+  <tr class="row-link" tabindex="0" hx-get="/ui/run/{{ r.id }}" hx-target="#detail" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+    <td class="mono">#{{ r.id }}</td>
+    <td class="strong">{{ r.package_name }}</td>
+    <td>{{ r.package_version or '-' }}</td>
     <td>{{ r.setup }}</td>
-    <td>
-      {% if r.decision == 'ALLOW' %}<span class="badge ok">✔ ALLOWED</span>
-      {% elif r.decision == 'BLOCK' %}<span class="badge bad">✖ BLOCKED</span>
-      {% elif r.decision == 'ESCALATE' %}<span class="badge warn">⚠ NEEDS REVIEW</span>
-      {% elif r.decision == 'NONE' %}<span class="badge neutral">UNGUARDED</span>
-      {% else %}<span class="badge neutral">{{ r.state }}</span>{% endif %}
-    </td>
+    <td>{{ r.agent_id }}</td>
+    <td>{{ (r.created_at or '')[11:19] }}</td>
+    <td>{{ r.n_findings }}</td>
+    <td>{{ decision_chip(r.decision, r.state) }}</td>
     <td>{% if r.decision_ms %}{{ '%.1f' % (r.decision_ms / 1000) }}s{% else %}-{% endif %}</td>
   </tr>
   {% endfor %}

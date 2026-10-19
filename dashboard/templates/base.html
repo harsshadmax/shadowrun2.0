@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="demo-token" content="{{ token }}">
 <title>{% block title %}Shadow-Run{% endblock %}</title>
 <link rel="stylesheet" href="/static/app.css">
@@ -11,20 +12,43 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body data-page="{{ page }}">
-<header class="strip">
-  <div class="strip-inner">
-    <a class="brand" href="/">Shadow-Run</a>
-    <nav>
-      <a href="/" {% if page == 'gate' %}aria-current="page"{% endif %}>Live Gate</a>
-      <a href="/demo" {% if page == 'demo' %}aria-current="page"{% endif %}>Split-Screen Demo</a>
-    </nav>
-    <span class="spacer"></span>
-    <span id="doctor" hx-get="/ui/doctor" hx-trigger="load, every 30s" hx-swap="innerHTML">
-      <span class="pill neutral">Doctor: checking…</span>
-    </span>
-    <span class="pill sim">SIMULATED SCENARIOS ONLY</span>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></symbol>
+    <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17v.5"/></symbol>
+    <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7V5z"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9.5 13.5h.01M14.5 13.5h.01M9 16.5h6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="Shadow-Run home">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.6" fill="var(--coral)"/></svg>
+    <span>Shadow-Run</span>
+  </a>
+  <nav class="pills" aria-label="Main">
+    <a href="/" {% if page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+    <a href="/demo" {% if page == 'demo' %}aria-current="page"{% endif %}>Split-screen demo</a>
+    <a href="/demo#benchmark">Benchmark</a>
+    <a href="/demo#audit">Audit</a>
+  </nav>
+  <div class="status-box">
+    <span id="doctor" hx-get="/ui/doctor" hx-trigger="load, every 30s" hx-swap="innerHTML"><span class="chip neutral">Doctor: checking…</span></span>
+    <span class="chip sim">SIMULATED SCENARIOS ONLY</span>
   </div>
 </header>
+
 <main>{% block main %}{% endblock %}</main>
 <footer>Shadow-Run reduces the chance and blast radius of a malicious install. It does not prove safety.</footer>
 </body>

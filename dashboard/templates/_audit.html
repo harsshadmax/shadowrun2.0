@@ -1,5 +1,5 @@
 {% if res.ok %}
-<span class="badge ok">✔ Chain OK: {{ res.checked }} entries verified</span>
+<span class="chip ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Chain OK: {{ res.checked }} entries verified</span>
 {% else %}
-<span class="badge bad">✖ Chain BROKEN at entry {{ res.broken_id }} ({{ res.checked }} verified before it)</span>
+<span class="chip bad"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>Chain BROKEN at entry {{ res.broken_id }} ({{ res.checked }} verified before it)</span>
 {% endif %}

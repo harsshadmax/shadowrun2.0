@@ -1,0 +1,8 @@
+{% if k.review %}
+<svg class="i warn" aria-hidden="true"><use href="#i-alert"/></svg>
+<span>{{ k.review }} {{ 'run needs' if k.review == 1 else 'runs need' }} human review</span>
+{% elif k.total %}
+<span class="muted">Every scan so far has a final verdict.</span>
+{% else %}
+<span class="muted">No scans yet.</span>
+{% endif %}

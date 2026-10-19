@@ -1,11 +1,50 @@
 {% extends "base.html" %}
-{% block title %}Live Gate | Shadow-Run{% endblock %}
+{% block title %}Overview | Shadow-Run{% endblock %}
 {% block main %}
-<h1>Live Gate</h1>
-<p class="lead">Every install is fetched, hash-pinned and run in an isolated sandbox with fake secrets before a decision is made.</p>
+<section class="hero">
+  <h1>Install<br>verdicts</h1>
+  <div class="kpis" id="kpis" hx-get="/ui/kpis" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
+    <div class="kpi skeleton">Loading…</div>
+  </div>
+</section>
 
-<section class="card">
-  <h2>Run an install</h2>
+<section class="bar">
+  <svg class="i big" aria-hidden="true"><use href="#i-db"/></svg>
+  <div class="bar-title"><strong>Run database</strong><span>Today, {{ today }}</span></div>
+  <div class="bar-note" id="note" hx-get="/ui/note" hx-trigger="load, refresh from:body" hx-swap="innerHTML"></div>
+  <a class="btn ghost" href="/api/v1/runs/export.csv" download><span>Download report</span></a>
+  <button class="btn primary" id="open-scan" type="button">Run scan</button>
+</section>
+
+<section class="grid">
+  <div class="card" id="analytic" hx-get="/ui/heatmap?tab=findings" hx-trigger="load" hx-swap="innerHTML">
+    <p class="empty">Loading detection matrix…</p>
+  </div>
+
+  <div class="card" id="detail" hx-get="/ui/run/latest" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
+    <p class="empty">Loading run detail…</p>
+  </div>
+
+  <div class="stack">
+    <div class="card" id="isolation" hx-get="/ui/isolation" hx-trigger="load, every 60s" hx-swap="innerHTML">
+      <p class="empty">Checking isolation…</p>
+    </div>
+    <div class="card" id="agent" hx-get="/ui/agent" hx-trigger="load, refresh from:body, every 4s" hx-swap="innerHTML">
+      <p class="empty">Loading agent…</p>
+    </div>
+  </div>
+</section>
+
+<section class="card wide" id="activity" hx-get="/ui/runs" hx-trigger="load" hx-swap="innerHTML">
+  <p class="empty">Loading runs…</p>
+</section>
+
+<dialog id="scan" aria-labelledby="scan-title">
+  <div class="dlg-head">
+    <h2 id="scan-title">Run an install scan</h2>
+    <button type="button" class="icon-btn" id="close-scan" aria-label="Close"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <p class="muted">The package is fetched, hash-pinned and installed offline in the sandbox before a verdict is made.</p>
   <div class="form-row">
     <label for="scenario">Scenario</label>
     <select id="scenario">
@@ -16,13 +55,10 @@
     </select>
     <label for="spec">or type a spec</label>
     <input id="spec" type="text" placeholder="name or name==version" autocomplete="off" maxlength="120">
-    <button id="run" type="button">Run</button>
+    <button id="run" class="btn primary" type="button">Run</button>
   </div>
   <p id="run-error" class="error" role="alert" hidden></p>
-</section>
 
-<section class="card" id="stepper-card">
-  <h2>Progress</h2>
   <ol class="stepper" id="stepper">
     <li data-phase="fetch"><span class="dot"></span><span class="lbl">Fetch</span><span class="sec"></span></li>
     <li data-phase="hash"><span class="dot"></span><span class="lbl">Hash</span><span class="sec"></span></li>
@@ -36,12 +72,5 @@
   </div>
   <h3>Findings</h3>
   <ul id="findings" class="findings"><li class="empty">Findings appear here as they are detected.</li></ul>
-</section>
-
-<section class="card">
-  <h2>Recent runs</h2>
-  <div id="recent" hx-get="/ui/runs" hx-trigger="load, refresh from:body, every 5s" hx-swap="innerHTML">
-    <p class="empty">Loading runs…</p>
-  </div>
-</section>
+</dialog>
 {% endblock %}

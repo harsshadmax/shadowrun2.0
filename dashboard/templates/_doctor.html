@@ -1,5 +1,5 @@
 {% if ok %}
-<span class="pill ok" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: PASS&#10;{% endfor %}">✔ Doctor: ALL PASS{% if busy %} (run in progress){% endif %}</span>
+<span class="chip ok" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: PASS&#10;{% endfor %}"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Doctor: ALL PASS{% if busy %} (run in progress){% endif %}</span>
 {% else %}
-<span class="pill bad" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: {{ 'PASS' if c.ok else 'FAIL - ' ~ c.detail }}&#10;{% endfor %}">✖ Doctor: FAILED. Runs are refused. Run <code>shadowrun doctor</code></span>
+<span class="chip bad" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: {{ 'PASS' if c.ok else 'FAIL - ' ~ c.detail }}&#10;{% endfor %}"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>Doctor: FAILED. Runs are refused. Run <code>shadowrun doctor</code></span>
 {% endif %}

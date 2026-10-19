@@ -127,6 +127,27 @@ def get_runs(limit: int = 50):
     return {"runs": db.list_runs(min(max(limit, 1), 200))}
 
 
+def _csv_cell(v) -> str:
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s  # neutralise spreadsheet formulas
+
+
+@app.get(f"{API}/runs/export.csv")
+def export_runs():
+    import csv
+    import io
+    from fastapi.responses import Response
+    cols = ["id", "created_at", "agent_id", "package_name", "package_version", "sha256", "setup", "state", "decision",
+            "decision_ms", "decision_reason"]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(cols)
+    for r in db.list_runs(200):
+        w.writerow([_csv_cell(r.get(c)) for c in cols])
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="shadowrun-runs.csv"'})
+
+
 @app.get(API + "/runs/{run_id}")
 def get_run(run_id: str):
     run = db.get_run(run_id)
