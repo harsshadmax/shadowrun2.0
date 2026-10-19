@@ -8,7 +8,8 @@ import docker
 
 from . import config
 
-STRACE_SYSCALLS = "openat,open,connect,execve,rename,unlink,mkdir,symlink,chmod"
+# chdir/clone/fork/vfork are added to the blueprint's list so relative paths can be resolved per process.
+STRACE_SYSCALLS = "openat,open,connect,execve,rename,unlink,mkdir,symlink,chmod,chdir,clone,clone3,fork,vfork"
 
 
 @dataclass
@@ -74,7 +75,8 @@ def run_container(cmd: str, *, analysis: bool, home: Path | None = None, out_dir
         container = c.containers.run(
             image, ["sh", "-c", cmd], detach=True, network=network,
             user=f"{config.UID}:{config.GID}", read_only=True,
-            tmpfs={"/tmp": "rw,exec,nosuid,size=128m", "/work": "rw,exec,nosuid,size=128m"},
+            tmpfs={p: f"rw,exec,nosuid,size=128m,uid={config.UID},gid={config.GID},mode=1777"
+                   for p in ("/tmp", "/work")},
             cap_drop=["ALL"], cap_add=["SYS_PTRACE"] if analysis else None,
             security_opt=["no-new-privileges:true"],
             mem_limit="512m", nano_cpus=1_000_000_000, pids_limit=128,

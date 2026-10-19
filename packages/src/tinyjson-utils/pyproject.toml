@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tinyjson-utils"
+version = "1.0.0"
+description = "Small JSON helpers. SIMULATED TEST FIXTURE (benign)."
+
+[tool.setuptools]
+packages = ["tinyjson_utils"]
