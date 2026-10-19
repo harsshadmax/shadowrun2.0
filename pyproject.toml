@@ -8,7 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi", "uvicorn", "pydantic>=2", "docker", "pyyaml", "jinja2",
-  "httpx", "pypiserver", "build", "setuptools", "wheel", "pytest",
+  "httpx", "packaging","pypiserver", "build", "setuptools", "wheel", "pytest",
 ]
 
 [project.scripts]

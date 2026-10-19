@@ -94,25 +94,25 @@ def analyze(events: list[Event], ctx: RunContext, cfg: DetectorConfig | None = N
             p = _norm_path(ev.path)
             if p in canaries:
                 _add(findings, seen, "CANARY_READ", "high", f"Package code opened canary file {p}",
-                     path=p, syscall=ev.syscall, pid=ev.pid)
+                     path=p, syscall=ev.syscall)
         if ev.kind == "FILE_WRITE" and ev.path:
             p = _norm_path(ev.path)
             if PERSISTENCE_RE.search(p):
                 _add(findings, seen, "PERSISTENCE_WRITE", "high", f"Write to persistence location {p}",
-                     path=p, syscall=ev.syscall, pid=ev.pid)
+                     path=p, syscall=ev.syscall)
             elif (not any(p.startswith(pre) or p + "/" == pre for pre in cfg.allowed_write_prefixes)
                   and not any(r.search(p) for r in known_write)):
                 _add(findings, seen, "WRITE_OUTSIDE_ALLOWED", "medium", f"Write outside allowed paths: {p}",
-                     path=p, syscall=ev.syscall, pid=ev.pid)
+                     path=p, syscall=ev.syscall)
         elif ev.kind == "NET_CONNECT" and ev.family in ("AF_INET", "AF_INET6"):
             if not _is_loopback(ev.addr) and ev.addr != RESOLVER:
                 _add(findings, seen, "NET_OUTBOUND", "high",
                      f"Outbound connect to {ev.addr}:{ev.port} during an offline install",
-                     addr=ev.addr, port=ev.port, pid=ev.pid)
+                     addr=ev.addr, port=ev.port)
         elif ev.kind == "PROC_EXEC" and ev.path:
             if _norm_exec(ev.path) not in allowed_exec:
                 _add(findings, seen, "UNEXPECTED_EXEC", "medium", f"Unexpected exec of {ev.path}",
-                     path=ev.path, argv=ev.argv[:6], pid=ev.pid)
+                     path=ev.path, argv=ev.argv[:6])
 
     if ctx.timed_out:
         _add(findings, seen, "SANDBOX_TIMEOUT", "medium", "Run exceeded the timeout")
