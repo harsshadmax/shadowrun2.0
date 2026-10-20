@@ -10,6 +10,119 @@ runs the package inside a locked-down sandbox full of fake secrets, watches what
 > Everything is a **simulation**: the packages, the agent and the secrets are fake, and payloads can only reach a
 > sink container inside an internal Docker network. Nothing touches a real host.
 
+## Quick start: from a fresh clone to the dashboard
+
+About 10 minutes the first time (most of it is downloading Docker images). You need **Windows 11 with WSL2 and an
+Ubuntu distro**, or any Linux machine with Docker. Every command below runs **inside the Ubuntu (Linux) terminal**, not
+in PowerShell, unless a step says otherwise.
+
+**Step 0. Get Ubuntu on WSL2** (skip if you already have it). In PowerShell, run `wsl --install -d Ubuntu`, reboot if
+asked, then open "Ubuntu" from the Start menu and create your Linux user. Check with `wsl -l -v` that its VERSION is 2.
+
+**Step 1. Install the tools** (Docker engine, Python venv, strace, git):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io python3-venv python3-pip strace git curl
+sudo usermod -aG docker $USER
+```
+
+**Step 2. Reload your group and start Docker.** Close the Ubuntu window. In **PowerShell** run `wsl --shutdown`, then
+open Ubuntu again and run:
+
+```bash
+sudo service docker start
+docker run --rm hello-world
+```
+
+You should see "Hello from Docker!". (On WSL without systemd you need `sudo service docker start` after every restart
+of WSL. Docker Desktop with WSL integration enabled for Ubuntu also works and needs no `service` command.)
+
+**Step 3. Clone the repository.** The work is on the `security-fixes-and-redesign` branch (the repo has no `main` yet).
+Keep it in your Linux home folder, not under `/mnt/c`:
+
+```bash
+git clone -b security-fixes-and-redesign https://github.com/harsshadmax/shadowrun2.0.git ~/shadowrun2.0
+cd ~/shadowrun2.0
+```
+
+**Step 4. Create the Python environment and install:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+**Step 5. Build the six simulated packages.** This only assembles files; it never runs their code:
+
+```bash
+python packages/build_all.py
+```
+
+Expected: `built 6 packages into .../packages/dist`.
+
+**Step 6. Start the sandbox services.** This builds two small Docker images the first time (a few minutes), creates the
+internal network, and starts the sink and a local package registry:
+
+```bash
+bash scripts/up.sh
+```
+
+Expected last line: `up: sink + pypiserver started`.
+
+**Step 7. Check that the sandbox is safe to use.** Every line must say PASS or runs are refused:
+
+```bash
+python -m shadowrun.cli doctor
+```
+
+Expected: eight `[PASS]` lines and `DOCTOR: ALL PASS`.
+
+**Step 8. Start the dashboard:**
+
+```bash
+python -m shadowrun.cli serve
+```
+
+Leave this terminal open. It prints nothing while it works.
+
+**Step 9. Open the dashboard.** In your Windows browser go to **<http://127.0.0.1:8000>**. The header should show
+"Doctor PASS" and the page is empty until you run a scan.
+
+**Step 10. Try it.**
+
+1. Press **Run scan** (top left), choose `M1 · report-export-pro`, press **Run**. Expect **BLOCKED** with
+   `CANARY_READ`, `NET_OUTBOUND` and `CANARY_EXFIL` after about 3 seconds.
+2. Run `B2 · csvtoolkit`. Expect **ALLOWED**.
+3. Open the **Demo** tab in the sidebar and press **Start demo** to see the same install with and without the gate,
+   and the simulated agent switching to a safe package.
+4. Use **Sandbox health** (right side) to see the doctor result with its check id and time.
+
+**To stop:** press `Ctrl+C` in the server terminal, then `bash scripts/down.sh`.
+**To start again later:** open Ubuntu and run
+
+```bash
+cd ~/shadowrun2.0 && source .venv/bin/activate
+sudo service docker start      # not needed with Docker Desktop
+bash scripts/up.sh && python -m shadowrun.cli serve
+```
+
+**If something goes wrong**
+
+| Symptom | Fix |
+|---|---|
+| `permission denied` talking to Docker | You skipped the `wsl --shutdown` in step 2, so your new group is not active yet. Do it and reopen Ubuntu. |
+| `Cannot connect to the Docker daemon` | Run `sudo service docker start` (or start Docker Desktop). |
+| `Address already in use` on port 8000 | Another server is running: `fuser -k 8000/tcp`, or start on another port with `python -m shadowrun.cli serve --port 8010`. |
+| Doctor shows a `[FAIL]` line | Read its message. Usually `bash scripts/up.sh` was not run, or Docker is not running. Fix it and rerun `doctor`. Scans are refused until it passes. |
+| Dashboard header says `Doctor UNKNOWN` or `STALE` | The status is older than 2 minutes or not checked yet. It re-checks itself when no scan is running; or press **Re-check now** in the Sandbox health panel. |
+| Windows browser cannot open `127.0.0.1:8000` | The server listens on localhost only and relies on WSL's localhost forwarding. In PowerShell run `wsl --update` then `wsl --shutdown`, reopen Ubuntu and start again. |
+| `pip install -e .` fails | Make sure the virtual environment is active (the prompt starts with `(.venv)`). |
+
+Prefer the command line? `python -m shadowrun.cli pip install report-export-pro` runs one scan and exits with code 2
+(BLOCK), 3 (needs review) or 0 (ALLOW). More commands are in [section 10](#10-setup-use-and-demo).
+
 ![Dashboard overview](evidence/dashboard_overview.jpg)
 
 *Split-screen replay (terminal beside dashboard): [`evidence/split_screen_demo.gif`](evidence/split_screen_demo.gif),
@@ -18,6 +131,7 @@ assembled from real captured output, not a live screen recording. Everything in 
 
 ## Contents
 
+0. [Quick start: from a fresh clone to the dashboard](#quick-start-from-a-fresh-clone-to-the-dashboard)
 1. [The problem and the idea](#1-the-problem-and-the-idea)
 2. [The system at a glance](#2-the-system-at-a-glance)
 3. [Anatomy of one scan](#3-anatomy-of-one-scan)
@@ -403,7 +517,8 @@ Raw output of the validation run (environment, doctor, pytest, benchmark, exit c
 
 ### Setup (Windows 11 + WSL2)
 
-The repo must live in the WSL filesystem (`~/shadow-run`), not under `/mnt/c`.
+The step-by-step version is the [Quick start](#quick-start-from-a-fresh-clone-to-the-dashboard) at the top. The repo
+must live in the WSL filesystem (`~/shadowrun2.0`), not under `/mnt/c`.
 
 ```bash
 # inside Ubuntu on WSL2
@@ -411,7 +526,7 @@ sudo apt-get update && sudo apt-get install -y docker.io python3-venv python3-pi
 sudo usermod -aG docker $USER      # then: wsl --shutdown (from PowerShell) and reopen Ubuntu
 sudo service docker start          # WSL without systemd needs this after each WSL restart
 
-git clone https://github.com/harsshadmax/shadowrun.git ~/shadow-run && cd ~/shadow-run
+git clone -b security-fixes-and-redesign https://github.com/harsshadmax/shadowrun2.0.git ~/shadowrun2.0 && cd ~/shadowrun2.0
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 bash scripts/vendor_assets.sh      # only if dashboard/static/vendor is missing (needs internet once)
