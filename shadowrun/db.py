@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE TABLE IF NOT EXISTS eval_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT, eval_run_id TEXT, scenario_id TEXT, setup TEXT, repeat INTEGER,
   outcome TEXT, decision TEXT, decision_ms REAL, leaked_tokens INTEGER);
+CREATE TABLE IF NOT EXISTS doctor_runs (
+  id TEXT PRIMARY KEY, started_at TEXT, finished_at TEXT, ok INTEGER, checks_json TEXT, reason TEXT);
 """
 
 RUN_COLUMNS = {"created_at", "agent_id", "package_name", "package_version", "sha256", "setup", "state",
@@ -64,6 +66,24 @@ def update_run(run_id: str, **fields) -> None:
     with closing(connect()) as c:
         c.execute(f"UPDATE runs SET {','.join(k + '=?' for k in fields)} WHERE id=?", list(fields.values()) + [run_id])
         c.commit()
+
+
+def insert_doctor_run(doctor_id: str, started_at: str, finished_at: str, ok: bool, checks_json: str, reason: str) -> None:
+    with closing(connect()) as c:
+        c.execute("INSERT OR REPLACE INTO doctor_runs (id, started_at, finished_at, ok, checks_json, reason) "
+                  "VALUES (?,?,?,?,?,?)", (doctor_id, started_at, finished_at, 1 if ok else 0, checks_json, reason))
+        c.commit()
+
+
+def get_doctor_run(doctor_id: str) -> dict | None:
+    with closing(connect()) as c:
+        r = c.execute("SELECT * FROM doctor_runs WHERE id=?", (doctor_id,)).fetchone()
+        if not r:
+            return None
+        out = dict(r)
+        out["ok"] = bool(out["ok"])
+        out["checks"] = json.loads(out.pop("checks_json") or "[]")
+        return out
 
 
 def add_findings(run_id: str, findings) -> None:

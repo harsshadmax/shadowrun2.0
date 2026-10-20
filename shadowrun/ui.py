@@ -17,7 +17,8 @@ _env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(config.ROOT / "dash
                           autoescape=True)
 _env.filters["secs"] = lambda ms: "n/a" if ms is None else ("<0.1s" if ms < 50 else f"{ms / 1000:.1f}s")
 templates = Jinja2Templates(env=_env)
-_doctor_cache = {"ts": 0.0, "checks": None}
+UI_REFRESH_MIN_GAP_S = 20
+_ui_refresh = {"ts": 0.0}
 
 
 def scenarios() -> list[dict]:
@@ -30,14 +31,17 @@ def _ctx(request: Request, page: str, **kw) -> dict:
     return {"token": api.TOKEN, "page": page, **kw}
 
 
-async def _checks() -> tuple[list[dict], bool]:
-    from . import api
-    from .doctor import run_checks
-    busy = api.RUN_LOCK.locked()
-    if _doctor_cache["checks"] is None or (not busy and time.time() - _doctor_cache["ts"] > 60):
-        _doctor_cache["checks"] = await asyncio.to_thread(run_checks)
-        _doctor_cache["ts"] = time.time()
-    return _doctor_cache["checks"], busy
+async def _health() -> dict:
+    """The one shared health view. The dashboard never runs a check while a scan is in progress (it would share
+    the sandbox with the scan); it re-checks only when idle and the status is not a fresh PASS."""
+    from . import health
+    view = health.peek()
+    busy = health.busy()
+    if view["state"] != "PASS" and not busy and time.time() - _ui_refresh["ts"] > UI_REFRESH_MIN_GAP_S:
+        _ui_refresh["ts"] = time.time()
+        await asyncio.to_thread(health.refresh, "dashboard")
+        view = health.peek()
+    return {**view, "busy": busy}
 
 
 def _tpl(request: Request, name: str, **ctx):
@@ -85,18 +89,16 @@ def ui_run(request: Request, run_id: str):
 
 @router.get("/ui/doctor")
 async def ui_doctor(request: Request):
-    checks, busy = await _checks()
-    return templates.TemplateResponse(request, "_doctor.html",
-                                      {"checks": checks, "ok": all(c["ok"] for c in checks), "busy": busy})
+    return templates.TemplateResponse(request, "_doctor.html", {"h": await _health()})
 
 
 @router.get("/ui/isolation")
 async def ui_isolation(request: Request):
-    checks, busy = await _checks()
-    by = {c["n"]: c for c in checks}
-    items = [("Internet blocked", by.get(3)), ("Sink reachable", by.get(4)),
-             ("strace recording", by.get(5)), ("Read-only root", by.get(6))]
-    return templates.TemplateResponse(request, "_isolation.html", {"items": items, "busy": busy})
+    h = await _health()
+    by = {c["n"]: c for c in h["checks"]}
+    items = [("Internet blocked", by.get(3)), ("Sink reachable", by.get(4)), ("strace recording", by.get(5)),
+             ("Read-only root", by.get(6)), ("Evidence protected", by.get(8))]
+    return templates.TemplateResponse(request, "_isolation.html", {"items": items, "h": h})
 
 
 @router.get("/ui/agent")

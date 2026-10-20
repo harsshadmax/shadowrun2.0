@@ -18,12 +18,23 @@ class PolicyError(Exception):
     pass
 
 
+INDETERMINATE_RULES = {"INCOMPLETE_TRACE", "EVIDENCE_UNAVAILABLE"}
+
+
 class Decision(BaseModel):
     decision: str
     matched_rules: list[str]
     findings: list[Finding]
     confidence: str = "limited"
     reason: str
+    error: bool = False  # produced by decide_error: the pipeline itself could not reach a verdict
+
+    @property
+    def indeterminate(self) -> bool:
+        """Denied because the evidence is missing or incomplete (or the pipeline failed), not because of behaviour."""
+        if self.decision == "BLOCK":
+            return False
+        return self.error or any(f.rule_id in INDETERMINATE_RULES for f in self.findings)
 
     @property
     def denied(self) -> bool:
@@ -94,4 +105,5 @@ def decide(findings: list[Finding], policy: dict | None = None, policy_path: Pat
 def decide_error(message: str, block: bool = False) -> Decision:
     """Pipeline-level failure (fetch error, doctor failure, ...): never ALLOW."""
     d = "BLOCK" if block else "ESCALATE"
-    return Decision(decision=d, matched_rules=[], findings=[], reason=f"{message}; {LABELS[d]} (fail closed).")
+    return Decision(decision=d, matched_rules=[], findings=[], error=True,
+                    reason=f"{message}; {LABELS[d]} (fail closed).")

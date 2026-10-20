@@ -16,7 +16,9 @@ JS = (DASH / "static" / "app.js").read_text()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "ui.db")
     monkeypatch.setattr(api, "TOKEN", "test-token")
-    monkeypatch.setattr(ui, "_doctor_cache", {"ts": 0.0, "checks": None})
+    from shadowrun import health
+    health.reset_for_tests()
+    monkeypatch.setattr(ui, "_ui_refresh", {"ts": 0.0})
     monkeypatch.setattr(doctor, "run_checks", lambda: [{"n": 1, "name": "docker", "ok": True, "detail": "ok"}])
     db.init_db()
     return TestClient(api.app, raise_server_exceptions=False)

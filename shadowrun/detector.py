@@ -45,6 +45,15 @@ class RunContext:
     hash_mismatch: bool = False
     install_failed: bool = False
     timed_out: bool = False
+    # Evidence integrity (None = caller did not supply it, e.g. unit tests of a single rule).
+    evidence_errors: list[str] | None = None  # collection failed or was cut short
+    evidence_tampered: list[str] | None = None  # ownership/mode/hash checks failed
+    trace_problems: list[str] | None = None  # ParseResult.completeness_problems()
+    require_pip_exec: bool = False  # a complete trace must contain pip/python being executed
+    wrapper_cmd: str | None = None  # the exact package-side command the sandbox itself starts via `sh -c`
+
+
+PIP_EXECS = {"pip", "pip3", "python", "python3"}
 
 
 def _norm_exec(path: str) -> str:
@@ -110,9 +119,29 @@ def analyze(events: list[Event], ctx: RunContext, cfg: DetectorConfig | None = N
                      f"Outbound connect to {ev.addr}:{ev.port} during an offline install",
                      addr=ev.addr, port=ev.port)
         elif ev.kind == "PROC_EXEC" and ev.path:
+            if (ctx.wrapper_cmd and _norm_exec(ev.path) == "sh" and ev.argv[:2] == ["sh", "-c"]
+                    and len(ev.argv) > 2 and ev.argv[2] == ctx.wrapper_cmd):
+                continue  # the sandbox's own launch of the install command (setpriv -> sh -c <install>)
             if _norm_exec(ev.path) not in allowed_exec:
                 _add(findings, seen, "UNEXPECTED_EXEC", "medium", f"Unexpected exec of {ev.path}",
                      path=ev.path, argv=ev.argv[:6])
+
+    if ctx.evidence_tampered:
+        _add(findings, seen, "EVIDENCE_TAMPERED", "critical",
+             "Trace evidence failed integrity checks: " + "; ".join(ctx.evidence_tampered),
+             problems=list(ctx.evidence_tampered))
+    if ctx.evidence_errors:
+        _add(findings, seen, "EVIDENCE_UNAVAILABLE", "medium",
+             "Syscall evidence could not be collected: " + "; ".join(ctx.evidence_errors),
+             problems=list(ctx.evidence_errors))
+    problems = list(ctx.trace_problems or [])
+    if ctx.trace_problems is not None and ctx.require_pip_exec and not any(
+            ev.kind == "PROC_EXEC" and ev.path and _norm_exec(ev.path) in PIP_EXECS for ev in events):
+        problems.append("required event missing: pip was never seen executing")
+    if problems and not ctx.evidence_errors:  # collection errors already explain a missing/partial trace
+        _add(findings, seen, "INCOMPLETE_TRACE", "medium",
+             "Trace is incomplete, so absence of findings proves nothing: " + "; ".join(problems),
+             problems=problems)
 
     if ctx.timed_out:
         _add(findings, seen, "SANDBOX_TIMEOUT", "medium", "Run exceeded the timeout")

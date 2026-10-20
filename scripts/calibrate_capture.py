@@ -32,13 +32,12 @@ def main():
             cache.mkdir(parents=True, exist_ok=True)
             shutil.copy(f, cache / f.name)
         cs = canary.create_home("calib-" + label)
-        out = config.TRACE_DIR / ("calib-" + label)
-        shutil.rmtree(out, ignore_errors=True)
         try:
-            r = sandbox.run_container(sandbox.install_command(name, ver, sha), analysis=True, home=cs.home,
-                                      out_dir=out, cache_dir=cache)
-            print(label, "exit", r.exit_code, "timeout", r.timed_out, r.logs.strip()[-300:])
-            shutil.copy(out / "trace.log", FIX / f"{label}.trace.log")
+            r, ev = sandbox.run_analysis(sandbox.install_command(name, ver, sha), home=cs.home, cache_dir=cache)
+            print(label, "exit", r.exit_code, "timeout", r.timed_out, "trusted", ev.trusted, ev.errors, ev.tampered,
+                  r.logs.strip()[-300:])
+            (FIX / f"{label}.trace.log").write_text(ev.trace_text)
+            (FIX / f"{label}.cmd").write_text(sandbox.install_command(name, ver, sha))
         finally:
             canary.cleanup_home(cs)
 

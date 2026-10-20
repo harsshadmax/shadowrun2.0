@@ -5,13 +5,14 @@ allowed_exec: ["python", "python3", "pip", "pip3", "git"]
 # Everything pip itself touches in the sandbox, derived from calibration traces
 # (tests/fixtures/pip_wheel.trace.log, pip_sdist.trace.log). Anything else is attributed to package code.
 pip_baseline:
-  known_execs: ["pip", "pip3", "python", "python3", "lsb_release", "uname"]
+  known_execs: ["pip", "pip3", "python", "python3", "lsb_release", "uname", "setpriv"]  # setpriv: tracer wrapper drops privileges
   known_write_regex:
     - '^/usr/local/lib/python3\.\d+/(.*/)?__pycache__(/|$)'   # failed .pyc writes on the read-only rootfs
     - '^/dev/null$'
 
 rules:
-  - { id: block_exfil,   when: { any_rule: [CANARY_EXFIL, HASH_MISMATCH] },                              decision: BLOCK }
+  - { id: block_exfil,   when: { any_rule: [CANARY_EXFIL, HASH_MISMATCH, EVIDENCE_TAMPERED] },           decision: BLOCK }
   - { id: block_secrets, when: { any_rule: [CANARY_READ, PERSISTENCE_WRITE, NET_OUTBOUND] },             decision: BLOCK }
   - { id: escalate_odd,  when: { any_rule: [UNEXPECTED_EXEC, WRITE_OUTSIDE_ALLOWED, SANDBOX_TIMEOUT] },  decision: ESCALATE }
+  - { id: escalate_unknown, when: { any_rule: [INCOMPLETE_TRACE, EVIDENCE_UNAVAILABLE] },                decision: ESCALATE }
   - { id: allow_clean,   when: { max_severity_at_most: low },                                            decision: ALLOW }

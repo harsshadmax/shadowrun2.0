@@ -15,10 +15,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import audit, config, db, pipeline
+from . import audit, config, db, health, pipeline
 
 TOKEN = os.environ.get("SHADOWRUN_DEMO_TOKEN") or secrets.token_urlsafe(16)
-RUN_LOCK = threading.Lock()  # one sandbox run at a time
+RUN_LOCK = health.RUN_LOCK  # one sandbox use at a time: scans, doctor checks and the benchmark share it
 STREAMS: dict[str, "RunStream"] = {}
 AGENT_STATE = {"running": False}
 API = "/api/v1"
@@ -105,10 +105,17 @@ def health():
 
 
 @app.get(f"{API}/doctor")
-async def doctor_route():
-    from .doctor import run_checks
-    checks = await asyncio.to_thread(run_checks)
-    return {"ok": all(c["ok"] for c in checks), "checks": checks}
+def doctor_route():
+    """Current shared health status (PASS / FAIL / STALE / UNKNOWN) with its check id and time. Runs nothing."""
+    return {**health.peek(), "busy": health.busy()}
+
+
+@app.post(f"{API}/doctor/refresh", dependencies=[Depends(need_token)])
+async def doctor_refresh():
+    if health.busy():
+        raise HTTPException(409, "A scan is running; the doctor check would run after it finishes")
+    status = await asyncio.to_thread(health.refresh, "api")
+    return {**health.peek(), "busy": False, "id": status.id}
 
 
 @app.post(f"{API}/actions", dependencies=[Depends(need_token)])

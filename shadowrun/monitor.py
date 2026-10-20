@@ -17,10 +17,33 @@ INITIAL_CWD = "/work"
 ROOT_PID = None  # key used for logs without pid prefixes (single-process traces)
 
 
+TRUNCATED_RE = re.compile(r'"\.\.\.')  # strace marks a cut-off string as "abc"...
+
+
 @dataclass
 class ParseResult:
     events: list[Event] = field(default_factory=list)
     parse_warnings: int = 0
+    lines: int = 0
+    unresumed: int = 0  # '<unfinished ...>' calls that never resumed (lost events)
+    truncated: int = 0  # records whose strings were cut off by strace (-s limit)
+    root_pid: int | None = None
+    root_exited: bool = False  # saw the exit notice of the first traced process
+
+    def completeness_problems(self) -> list[str]:
+        """Reasons this trace cannot be treated as complete evidence (empty list = complete)."""
+        out = []
+        if self.lines == 0:
+            out.append("trace is empty")
+        if self.parse_warnings:
+            out.append(f"{self.parse_warnings} unparseable record(s)")
+        if self.unresumed:
+            out.append(f"{self.unresumed} syscall(s) never resumed")
+        if self.truncated:
+            out.append(f"{self.truncated} record(s) with truncated strings")
+        if self.lines and not self.root_exited:
+            out.append("no exit notice for the traced process (trace cut short)")
+        return out
 
 
 def _unescape(s: str) -> str:
@@ -114,9 +137,11 @@ def parse_trace(text: str) -> ParseResult:
         cwds[pid] = cwd_of(par, depth + 1) if par is not None and par != pid and depth < 50 else INITIAL_CWD
         return cwds[pid]
 
+    exited: set = set()
     for raw in text.splitlines():
         if not raw.strip():
             continue
+        res.lines += 1
         try:
             m = LINE_RE.match(raw)
             if not m:
@@ -125,8 +150,16 @@ def parse_trace(text: str) -> ParseResult:
             pid = int(m.group(1)) if m.group(1) else None
             ts = float(m.group(2))
             body = m.group(3)
-            if body.startswith(("+++", "---")):
-                continue  # exit / signal notices
+            if res.lines == 1:
+                res.root_pid = pid
+            if body.startswith("+++"):
+                if "exited with" in body or "killed by" in body:
+                    exited.add(pid)
+                continue
+            if body.startswith("---"):
+                continue  # signal notices
+            if TRUNCATED_RE.search(body):
+                res.truncated += 1
             r = RESUMED_RE.match(body)
             if r:
                 prev = pending.pop(pid, None)
@@ -156,4 +189,6 @@ def parse_trace(text: str) -> ParseResult:
                 res.events.append(ev)
         except Exception:
             res.parse_warnings += 1
+    res.unresumed = len(pending)
+    res.root_exited = res.root_pid in exited if res.lines else False
     return res
