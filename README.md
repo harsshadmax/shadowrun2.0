@@ -10,7 +10,11 @@ runs the package inside a locked-down sandbox full of fake secrets, watches what
 > Everything is a **simulation**: the packages, the agent and the secrets are fake, and payloads can only reach a
 > sink container inside an internal Docker network. Nothing touches a real host.
 
-![Dashboard overview](eval/results/dashboard_overview.jpg)
+![Dashboard overview](evidence/dashboard_overview.jpg)
+
+*Split-screen replay (terminal beside dashboard): [`evidence/split_screen_demo.gif`](evidence/split_screen_demo.gif),
+assembled from real captured output, not a live screen recording. Everything in `evidence/` is described in
+[`evidence/README.md`](evidence/README.md).*
 
 ## Contents
 
@@ -152,10 +156,15 @@ The trap only works if nothing can escape it. `shadowrun doctor` proves each arr
 
 ```mermaid
 flowchart LR
-    subgraph sbx["Analysis container (non-root, read-only root, no capabilities except ptrace for strace)"]
-        PKG["Package code<br>runs during install"]
-        HOME["Fake home<br>canaries + decoys"]
-        TR["strace<br>records open, connect, exec, writes"]
+    subgraph sbx["Analysis container"]
+        subgraph root["Root domain: strace, trace folder (root-only tmpfs)"]
+            TR["strace<br>records open, connect, exec, writes"]
+            EV[("/trace/trace.log<br>mode 600, root-owned")]
+        end
+        subgraph pkgd["Unprivileged domain: no capabilities, no-new-privileges"]
+            PKG["Package code<br>runs during install"]
+            HOME["Fake home<br>canaries + decoys"]
+        end
     end
     SINK["Sink<br>logs, never answers with data"]
     NET["Real internet"]
@@ -165,7 +174,9 @@ flowchart LR
     PKG -->|"allowed: the only route out"| SINK
     PKG -. "blocked: internal network,<br>no route, no DNS" .-x NET
     PKG -. "blocked: nothing mounted,<br>no socket" .-x HOST
+    PKG -. "blocked: EACCES on every attempt" .-x EV
     TR -. "observes" .-> PKG
+    TR --> EV
 ```
 
 | Control | Setting | Checked by doctor |
@@ -174,10 +185,51 @@ flowchart LR
 | Sink reachable | Sandbox can POST to `sink:9000` only | Round trip logged by the sink |
 | Observation | `strace -f` with a pinned syscall list | Records a canary `openat` and a `connect` |
 | Filesystem | Read-only root, `/tmp` and `/work` as tmpfs, fake home writable | Write to `/etc` fails, `/tmp` is executable |
-| Privileges | Non-root, `cap_drop ALL` (+ `SYS_PTRACE` for analysis), `no-new-privileges` | Container settings |
+| Privileges | Tracer: root with only `SYS_PTRACE`, `SETUID`, `SETGID`. Package: host uid via `setpriv`, no capabilities, `no-new-privileges` | `CapEff` is zero for the package |
+| Evidence | Trace lives in a root-only tmpfs; the package cannot open, truncate, delete, replace or list it, or signal the tracer | 8 tampering attempts all denied, trace hash verified |
 | Limits | 512 MB, 1 CPU, 128 pids, 30 s timeout, container always removed | Timeout test |
 
 If any doctor check fails, **runs are refused** (fail closed).
+
+### How the evidence is protected, collected and trusted
+
+Before the 2.0 hardening the trace was written to a folder the package could also write to, so a hostile
+`setup.py` could have erased its own evidence. Now the tracer and the package live in different privilege domains and
+the host fetches the trace over a channel the package cannot reach.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Host as Host pipeline
+    participant Tr as strace (root)
+    participant Pkg as Package (unprivileged)
+    participant Det as Detector
+
+    Host->>Tr: start container, wrapper script
+    Tr->>Pkg: setpriv drops to host uid, runs pip install
+    Pkg->>Pkg: tries to wipe or replace /trace/trace.log
+    Note over Pkg: EACCES, and the attempt is itself recorded
+    Pkg-->>Tr: exits
+    Tr->>Tr: writes exit status, done marker
+    Host->>Tr: docker exec: stat, sha256, cat (root)
+    Host->>Host: owner 0:0, mode 600, size and hash must match
+    Host->>Det: verified trace
+    Det->>Det: complete? (exit notice, no unresumed calls, no cut-off strings, pip seen)
+    Det-->>Host: findings, or INCOMPLETE_TRACE / EVIDENCE_UNAVAILABLE / EVIDENCE_TAMPERED
+```
+
+Missing or partial evidence is never treated as "nothing happened": it produces an **indeterminate**, denied verdict
+(`ESCALATE`, shown as "Indeterminate"). Evidence that fails its integrity checks is a **BLOCK**.
+
+### Registry allowlist and sandbox health
+
+- **Downloads:** the fetcher only talks to the origin(s) in `config.REGISTRY_ALLOWLIST` (default: the local
+  pypiserver). Links inside registry pages and redirect targets go through the same exact scheme/host/port check, hosts
+  are resolved once and the connection is pinned to that validated IP (no DNS rebinding), and non-public addresses are
+  refused unless the allowlist entry itself is a loopback or private literal.
+- **Health:** one shared status (`shadowrun/health.py`) feeds the gate, the header pill and the Sandbox health panel.
+  Every check has an id and time, each run records which check gated it, and the dashboard shows **PASS, FAIL, STALE
+  or UNKNOWN** explicitly. A doctor check never runs concurrently with a scan.
 
 ---
 
@@ -195,6 +247,9 @@ If any doctor check fails, **runs are refused** (fail closed).
 | `UNEXPECTED_EXEC` | `execve` of a binary outside the allowed list | medium |
 | `WRITE_OUTSIDE_ALLOWED` | Write outside `/work`, `/tmp`, `/home/sandbox/.cache` | medium |
 | `SANDBOX_TIMEOUT` | Run exceeded the timeout | medium |
+| `EVIDENCE_TAMPERED` | Trace ownership, mode, size or hash failed verification | critical |
+| `EVIDENCE_UNAVAILABLE` | The trace could not be collected (container gone, file missing, too large) | medium |
+| `INCOMPLETE_TRACE` | Empty, unparseable, truncated or cut-short trace; cut-off strings; pip never seen executing | medium |
 | `INSTALL_FAILED` | pip failed for another reason | low |
 
 Reading a **decoy** (`.gitconfig`, `.bash_history`, ...) is never a finding, so a benign `git` call does not trigger
@@ -325,7 +380,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | no_guard | 0 of 3 | 0 of 3 | 3 | n/a | n/a |
 | name_check | 1 of 3 (the typosquat) | 0 of 3 | 1 | n/a | n/a |
-| shadowrun | 2 of 3 (the time bomb slips through) | 0 of 3 | 0 | 2.6 s | 3.5 s |
+| shadowrun | 2 of 3 (the time bomb slips through) | 0 of 3 | 0 | 3.1 s | 3.1 s |
 
 > Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works on simulated
 > attacks, not real-world detection rates. Latency is dominated by container start and install time and was measured
@@ -333,6 +388,14 @@ flowchart LR
 
 Reading the table honestly: Shadow-Run's `0` leaked tokens is true **by construction**, because it never installs
 outside its sandbox. The attack it missed is M3. The name check only caught the one attack with a lookalike name.
+
+Detection results are identical before and after the 2.0 hardening, but the median decision time rose from 2.6 s
+(original code, max 3.5 s) to 3.1 s (max 3.1 s). I did not profile where the extra ~0.5 s goes; the evidence is now
+collected over `docker exec` round trips, which is the likely cause. These runs were measured with a warm doctor status
+(`gate` ≈ 0 s). A first run after the status expires (120 s) pays for a full doctor check, about 5 s.
+
+Raw output of the validation run (environment, doctor, pytest, benchmark, exit codes) is in
+[`evidence/validation.log`](evidence/validation.log).
 
 ---
 

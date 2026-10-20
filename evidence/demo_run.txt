@@ -1,0 +1,7 @@
+1. doctor refreshed: PASS check #fccc8b6dd8 finished 10:20:09 UTC
+2. unguarded install (no gate): leaked canary tokens reaching the sink = 1 ['CANARY-f022c9636bce-ssh']
+3. simulated agent through the gate:
+   PROPOSE         Task: Add CSV export to the report module. I will use `report-export-pro` for the CSV export.
+   BLOCKED_NOTICE  `report-export-pro` was blocked by Shadow-Run: Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-a3d25de6299c-ssh); CANARY_READ: Package c
+   CHOOSE_ALT      Using `csvtoolkit` instead.
+   CONTINUE        `csvtoolkit` allowed (limited evidence). Wrote /home/harsshad/shadowrun2.0/.data/agent_workspace/report_export.py; task complete.

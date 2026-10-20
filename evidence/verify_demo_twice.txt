@@ -1,0 +1,10 @@
+recording 1 exit code: 0
+Leaked canary tokens reaching the sink: **1** (CANARY-79d5bec192fd-ssh)
+- `report-export-pro`: **BLOCK** in 3.7s. Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-5d2c3356a003-ssh); CANARY_READ: Package code opened cana
+- `csvtoolkit`: **ALLOW** in 3.4s. No suspicious behaviour in the tested run (limited evidence).
+recording 2 exit code: 0
+Leaked canary tokens reaching the sink: **1** (CANARY-2fa6d9fa9249-ssh)
+- `report-export-pro`: **BLOCK** in 3.1s. Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh); CANARY_READ: Package code opened cana
+- `csvtoolkit`: **ALLOW** in 3.4s. No suspicious behaviour in the tested run (limited evidence).
+published ports on sink: []
+{"ok": true, "checked": 230, "broken_id": null}

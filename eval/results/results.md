@@ -1,10 +1,10 @@
-# Shadow-Run benchmark (5ceb7b77)
+# Shadow-Run benchmark (a9ed6b80)
 
 | Setup | Attacks prevented | Benign wrongly stopped | Canary tokens leaked | Median decision | Max decision |
 |---|---|---|---|---|---|
 | no_guard | 0 of 3 | 0 of 3 | 3 | n/a | n/a |
 | name_check | 1 of 3 | 0 of 3 | 1 | n/a | n/a |
-| shadowrun | 2 of 3 | 0 of 3 | 0 | 2.6s | 3.5s |
+| shadowrun | 2 of 3 | 0 of 3 | 0 | 3.1s | 3.1s |
 
 > Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works on simulated attacks, not real-world detection rates. Latency is dominated by container start and install time and was measured on this machine.
 
@@ -23,9 +23,10 @@
 
 | Phase | Median |
 |---|---|
+| gate | 0.00s |
 | fetch | 0.00s |
 | hash | 0.00s |
-| sandbox | 2.17s |
+| sandbox | 2.67s |
 | analyze | 0.34s |
 | decide | 0.00s |
 
