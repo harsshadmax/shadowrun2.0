@@ -1,4 +1,7 @@
 {% from "_macros.html" import state_chip %}
+{% if h.busy or h.state == 'UNKNOWN' %}
+<div class="auto" data-retry hx-get="/ui/health" hx-trigger="load delay:2s" hx-target="#health" hx-swap="innerHTML"></div>
+{% endif %}
 <div class="card-head">
   <h2>Sandbox health</h2>
   {{ state_chip(h.state) }}

@@ -138,7 +138,9 @@ def _run_action(spec, agent_id, setup, pin_sha256, emit, scenario_id, run_id) ->
     block_on_error = False
     evidence_ok = True
     try:
-        status = ensure_doctor()
+        t_gate = time.perf_counter()
+        status = ensure_doctor()  # near zero while the shared status is a fresh PASS; a full check otherwise
+        phases["gate_ms"] = (time.perf_counter() - t_gate) * 1000
         doctor_ref = {"id": status.id, "checked_at": status.finished_at, "ok": status.ok}
         emit("phase", {"phase": "fetch", "state": "start"})
         fetched = fetcher.fetch(spec)

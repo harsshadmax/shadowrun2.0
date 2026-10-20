@@ -188,7 +188,7 @@ def recent(n: int = 4) -> list[dict]:
             "WHERE decision IS NOT NULL ORDER BY created_at DESC LIMIT ?", (n,))]
 
 
-PHASE_LABELS = [("fetch_ms", "Fetch"), ("hash_ms", "Hash"), ("sandbox_ms", "Sandbox"),
+PHASE_LABELS = [("gate_ms", "Doctor gate"), ("fetch_ms", "Fetch"), ("hash_ms", "Hash"), ("sandbox_ms", "Sandbox"),
                 ("analyze_ms", "Analyze"), ("decide_ms", "Decide")]
 
 

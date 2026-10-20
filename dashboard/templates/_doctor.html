@@ -1,4 +1,7 @@
 {% from "_macros.html" import state_chip %}
+{% if h.busy or h.state == 'UNKNOWN' %}
+<span class="auto" data-retry hx-get="/ui/doctor" hx-trigger="load delay:2s" hx-target="#doctor" hx-swap="innerHTML"></span>
+{% endif %}
 <span title="{% for c in h.checks %}{{ c.n }}. {{ c.name }}: {{ 'PASS' if c.ok is sameas true else 'FAIL' }}&#10;{% endfor %}{{ h.detail }}">
   {{ state_chip(h.state, 'Doctor ' ~ h.state ~ (' · ' ~ (h.finished_at|hms) if h.finished_at else '')) }}
 </span>

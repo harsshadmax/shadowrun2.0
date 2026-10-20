@@ -306,6 +306,31 @@ def test_unknown_before_first_check_when_busy(client, fake):
         th.join()
 
 
+def test_busy_or_unknown_views_schedule_their_own_refresh_so_pill_and_panel_converge(client, fake):
+    """Regression for the screenshot mismatch: the pill checked while the panel was loading and showed UNKNOWN
+    until the next 30 s poll. A busy/UNKNOWN fragment now re-polls itself; a settled one does not."""
+    release, started = threading.Event(), threading.Event()
+
+    def scan():
+        with health.RUN_LOCK:
+            started.set()
+            release.wait(5)
+    th = threading.Thread(target=scan)
+    th.start()
+    started.wait(2)
+    try:
+        for url in ("/ui/health", "/ui/doctor"):
+            assert "data-retry" in client.get(url).text, url
+    finally:
+        release.set()
+        th.join()
+    for url in ("/ui/doctor", "/ui/health"):  # idle: the dashboard re-checks, then both settle
+        client.get(url)
+    for url in ("/ui/doctor", "/ui/health"):
+        assert "data-retry" not in client.get(url).text, url
+    assert health.peek()["id"] in client.get("/ui/health").text
+
+
 def test_pass_state_shows_id_time_and_every_check(client):
     pill = client.get("/ui/doctor").text
     panel = client.get("/ui/health").text

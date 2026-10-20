@@ -17,7 +17,7 @@ from eval.baselines import SETUPS
 
 RESULTS = config.ROOT / "eval" / "results"
 DENIED = {"BLOCK", "ESCALATE"}
-PHASE_KEYS = ["fetch_ms", "hash_ms", "sandbox_ms", "analyze_ms", "decide_ms"]
+PHASE_KEYS = ["gate_ms", "fetch_ms", "hash_ms", "sandbox_ms", "analyze_ms", "decide_ms"]
 DISCLAIMER = ("Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works "
               "on simulated attacks, not real-world detection rates. Latency is dominated by container start and "
               "install time and was measured on this machine.")
