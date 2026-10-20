@@ -144,6 +144,7 @@ assembled from real captured output, not a live screen recording. Everything in 
 10. [Setup, use and demo](#10-setup-use-and-demo)
 11. [Known gaps](#11-known-gaps)
 12. [Repository map and safety rules](#12-repository-map-and-safety-rules)
+13. [Contributors](#13-contributors)
 
 ---
 
@@ -619,3 +620,13 @@ tests/            unit, detector fixtures, API, dashboard, end-to-end through th
 `cap_drop ALL` (plus `SYS_PTRACE` for analysis only), `no-new-privileges`, resource limits and a hard timeout, and are
 always removed; no Docker socket in containers; all templates are autoescaped and the dashboard JS never builds HTML
 from data; any error ends in BLOCK or ESCALATE, never ALLOW.
+
+---
+
+## 13. Contributors
+
+| Contributor | Role |
+|---|---|
+| [@harsshadmax](https://github.com/harsshadmax) | Project owner and author |
+
+See [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
