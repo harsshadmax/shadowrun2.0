@@ -1,0 +1,16 @@
+{% from "_macros.html" import decision_chip %}
+{% if not items %}
+<p class="empty">No verdicts yet.</p>
+{% else %}
+<ul class="recent">
+  {% for r in items %}
+  <li>
+    <button type="button" class="recent-item" hx-get="/ui/run/{{ r.id }}" hx-target="#detail" hx-swap="innerHTML" data-scroll="#detail">
+      <span class="tile-letter" aria-hidden="true">{{ (r.package_name or '?')[:1]|upper }}</span>
+      <span class="r-text"><small>{{ r.setup }} · {{ r.created_at|hms }}</small><b>{{ r.package_name }}{% if r.package_version %} {{ r.package_version }}{% endif %}</b></span>
+      {{ decision_chip(r.decision, '') }}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

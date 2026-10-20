@@ -1,38 +1,41 @@
 {% extends "base.html" %}
-{% block title %}Overview | Shadow-Run{% endblock %}
+{% block title %}Dashboard | Shadow-Run{% endblock %}
 {% block main %}
-<section class="hero">
-  <h1>Install<br>verdicts</h1>
-  <div class="kpis" id="kpis" hx-get="/ui/kpis" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
-    <div class="kpi skeleton">Loading…</div>
-  </div>
-</section>
+<div class="layout">
+  <section class="intro">
+    <div class="intro-row"><span class="muted">Verdicts from the sandbox · {{ today }}</span></div>
+    <div class="intro-head">
+      <h1>Install verdicts</h1>
+      <label class="select"><span class="sr">Time window</span>
+        <select id="win" name="window" aria-label="Time window">
+          <option value="24h">Last 24 hours</option>
+          <option value="7d" selected>Last 7 days</option>
+          <option value="all">All time</option>
+        </select>
+      </label>
+    </div>
+  </section>
 
-<section class="bar">
-  <svg class="i big" aria-hidden="true"><use href="#i-db"/></svg>
-  <div class="bar-title"><strong>Run database</strong><span>Today, {{ today }}</span></div>
-  <div class="bar-note" id="note" hx-get="/ui/note" hx-trigger="load, refresh from:body" hx-swap="innerHTML"></div>
-  <a class="btn ghost" href="/api/v1/runs/export.csv" download><span>Download report</span></a>
-  <button class="btn primary" id="open-scan" type="button">Run scan</button>
-</section>
+  <section id="cards" class="cards" hx-get="/ui/cards" hx-include="#win" hx-trigger="load, refresh from:body, wchange from:body" hx-swap="innerHTML">
+    <div class="tile skeleton">Loading…</div>
+  </section>
 
-<section class="grid">
-  <div class="card" id="analytic" hx-get="/ui/heatmap?tab=findings" hx-trigger="load" hx-swap="innerHTML">
-    <p class="empty">Loading detection matrix…</p>
-  </div>
-
-  <div class="card" id="detail" hx-get="/ui/run/latest" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
+  <section class="card runpanel" id="detail" hx-get="/ui/run/latest" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
     <p class="empty">Loading run detail…</p>
-  </div>
+  </section>
 
-  <div class="stack">
-    <div class="card" id="isolation" hx-get="/ui/isolation" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      <p class="empty">Checking isolation…</p>
-    </div>
-    <div class="card" id="agent" hx-get="/ui/agent" hx-trigger="load, refresh from:body, every 4s" hx-swap="innerHTML">
+  <aside class="rail" aria-label="Health and agent">
+    <section class="card health" id="health" hx-get="/ui/health" hx-trigger="load, refresh from:body, every 30s" hx-swap="innerHTML">
+      <p class="empty">Checking sandbox health…</p>
+    </section>
+    <section class="card" id="agent" hx-get="/ui/agent" hx-trigger="load, refresh from:body, every 4s" hx-swap="innerHTML">
       <p class="empty">Loading agent…</p>
-    </div>
-  </div>
+    </section>
+  </aside>
+</div>
+
+<section class="card wide" id="matrix" hx-get="/ui/heatmap?tab=findings" hx-include="#win" hx-trigger="load, wchange from:body" hx-swap="innerHTML">
+  <p class="empty">Loading detection matrix…</p>
 </section>
 
 <section class="card wide" id="activity" hx-get="/ui/runs" hx-trigger="load" hx-swap="innerHTML">

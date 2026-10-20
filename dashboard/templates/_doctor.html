@@ -1,5 +1,5 @@
-{% if ok %}
-<span class="chip ok" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: PASS&#10;{% endfor %}"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Doctor: ALL PASS{% if busy %} (run in progress){% endif %}</span>
-{% else %}
-<span class="chip bad" title="{% for c in checks %}{{ c.n }}. {{ c.name }}: {{ 'PASS' if c.ok else 'FAIL - ' ~ c.detail }}&#10;{% endfor %}"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>Doctor: FAILED. Runs are refused. Run <code>shadowrun doctor</code></span>
-{% endif %}
+{% from "_macros.html" import state_chip %}
+<span title="{% for c in h.checks %}{{ c.n }}. {{ c.name }}: {{ 'PASS' if c.ok is sameas true else 'FAIL' }}&#10;{% endfor %}{{ h.detail }}">
+  {{ state_chip(h.state, 'Doctor ' ~ h.state ~ (' · ' ~ (h.finished_at|hms) if h.finished_at else '')) }}
+</span>
+{% if h.busy %}<span class="chip neutral">scan in progress</span>{% endif %}

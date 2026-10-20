@@ -1,11 +1,11 @@
-<div class="auto" hx-get="/ui/heatmap?tab={{ h.tab }}" hx-trigger="refresh from:body" hx-target="#analytic" hx-swap="innerHTML"></div>
+<div class="auto" hx-get="/ui/heatmap?tab={{ h.tab }}&window={{ h.window }}" hx-trigger="refresh from:body" hx-target="#matrix" hx-swap="innerHTML"></div>
 <div class="card-head">
-  <h2>Detection matrix</h2>
-  <div class="seg" role="tablist" aria-label="Matrix view">
+  <div><h2>Detection matrix</h2><span class="muted small">{{ {'24h': 'Last 24 hours', '7d': 'Last 7 days', 'all': 'All time'}.get(h.window, 'All time') }}</span></div>
+  <div class="seg-inline" role="tablist" aria-label="Matrix view">
     <button type="button" role="tab" {% if h.tab == 'findings' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}
-            hx-get="/ui/heatmap?tab=findings" hx-target="#analytic" hx-swap="innerHTML">Findings</button>
+            hx-get="/ui/heatmap?tab=findings&window={{ h.window }}" hx-target="#matrix" hx-swap="innerHTML">Findings</button>
     <button type="button" role="tab" {% if h.tab == 'decisions' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}
-            hx-get="/ui/heatmap?tab=decisions" hx-target="#analytic" hx-swap="innerHTML">Decisions</button>
+            hx-get="/ui/heatmap?tab=decisions&window={{ h.window }}" hx-target="#matrix" hx-swap="innerHTML">Decisions</button>
   </div>
 </div>
 
@@ -16,7 +16,7 @@
 </div>
 
 {% if not h.cols %}
-<p class="empty">No scans yet. Press Run scan to fill the matrix.</p>
+<p class="empty">No scans in this window. Press Run scan, or choose All time.</p>
 {% else %}
 <div class="heat" style="--cols: {{ h.cols|length }}" role="table" aria-label="{{ 'Runs in which each detector rule fired, per package' if h.tab == 'findings' else 'Decisions per package' }}">
   {% for row in h.rows %}
@@ -35,5 +35,5 @@
     {% for col in h.cols %}<span class="col-label" role="columnheader" title="{{ col }}">{{ col }}</span>{% endfor %}
   </div>
 </div>
-<p class="foot-note">{{ 'Number of runs in which a rule fired. Darker means fewer, brighter means more.' if h.tab == 'findings' else 'Number of runs per decision.' }}</p>
+<p class="foot-note">{{ 'Number of runs in which a rule fired. Brighter means more.' if h.tab == 'findings' else 'Number of runs per decision.' }}</p>
 {% endif %}

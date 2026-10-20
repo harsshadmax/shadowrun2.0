@@ -1,0 +1,5 @@
+<button type="button" class="icon-btn bell" aria-label="{{ k.review }} {{ 'run needs' if k.review == 1 else 'runs need' }} human review"
+        hx-get="/ui/runs?f=review" hx-target="#activity" hx-swap="innerHTML" data-scroll="#activity">
+  <svg class="i" aria-hidden="true"><use href="#i-bell"/></svg>
+  {% if k.review %}<span class="badge-n">{{ k.review }}</span>{% endif %}
+</button>

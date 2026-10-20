@@ -1,0 +1,15 @@
+{% macro decision_chip(d, state, indet=false) -%}
+  {%- if d == 'ALLOW' %}<span class="chip ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Allowed</span>
+  {%- elif d == 'BLOCK' %}<span class="chip bad"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>Blocked</span>
+  {%- elif d == 'ESCALATE' and indet %}<span class="chip warn"><svg class="i" aria-hidden="true"><use href="#i-help"/></svg>Indeterminate</span>
+  {%- elif d == 'ESCALATE' %}<span class="chip warn"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>Needs review</span>
+  {%- elif d == 'NONE' %}<span class="chip neutral">Unguarded</span>
+  {%- else %}<span class="chip neutral">{{ state or 'pending' }}</span>{% endif -%}
+{%- endmacro %}
+
+{% macro state_chip(state, label=none) -%}
+  {%- if state == 'PASS' %}<span class="chip ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>{{ label or 'PASS' }}</span>
+  {%- elif state == 'FAIL' %}<span class="chip bad"><svg class="i" aria-hidden="true"><use href="#i-block"/></svg>{{ label or 'FAIL' }}</span>
+  {%- elif state == 'STALE' %}<span class="chip warn"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg>{{ label or 'STALE' }}</span>
+  {%- else %}<span class="chip neutral"><svg class="i" aria-hidden="true"><use href="#i-help"/></svg>{{ label or 'UNKNOWN' }}</span>{% endif -%}
+{%- endmacro %}

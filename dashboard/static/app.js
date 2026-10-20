@@ -67,6 +67,30 @@
 
   function refreshAll() { document.body.dispatchEvent(new Event("refresh")); }
 
+  /* ---------- every page: delegated handlers (fragments are re-rendered by htmx) ---------- */
+  function initShared() {
+    document.addEventListener("click", function (e) {
+      var t = e.target.closest ? e.target : e.target.parentElement;
+      var sc = t && t.closest("[data-scroll]");
+      if (sc) { var dest = $(sc.getAttribute("data-scroll")); if (dest) dest.scrollIntoView({ behavior: "smooth", block: "start" }); }
+
+      var re = t && t.closest("#recheck");
+      if (re) {
+        re.disabled = true;
+        api("/api/v1/doctor/refresh", { method: "POST", body: {} })
+          .then(refreshAll, function (err) { re.disabled = false; alert(err.message); });
+      }
+
+      var rs = t && t.closest("#reset-demo");
+      if (rs && window.confirm("Clear runs, findings, agent events and the sink log? The audit log is kept.")) {
+        api("/api/v1/admin/demo-reset", { method: "POST", body: {} }).then(function () { window.location.reload(); },
+          function (err) { alert(err.message); });
+      }
+    });
+    var win = $("#win");
+    if (win) win.addEventListener("change", function () { document.body.dispatchEvent(new Event("wchange")); });
+  }
+
   /* ---------- Overview: scan dialog + agent button ---------- */
   function initOverview() {
     var dlg = $("#scan");
@@ -74,6 +98,7 @@
     $("#close-scan").addEventListener("click", function () { dlg.close(); });
     dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
     dlg.addEventListener("close", refreshAll);
+    if (window.location.hash === "#scan") dlg.showModal();
 
     // the agent card is re-rendered by htmx, so listen on the document
     document.addEventListener("click", function (e) {
@@ -123,7 +148,8 @@
         es.addEventListener("decision", function (e) {
           var d = JSON.parse(e.data); finished = true;
           steps.decide.className = "done"; $(".sec", steps.decide).textContent = secs(d.decision_ms);
-          setVerdict(verdict, d.decision, null, " " + d.reason + " (confidence: limited)");
+          setVerdict(verdict, d.decision, d.indeterminate ? "INDETERMINATE (denied: evidence incomplete)" : null,
+                     " " + d.reason + " (confidence: limited)");
           if (!count) fillFindings(findings, [], "No findings in the tested run.");
         });
         es.addEventListener("end", function () { es.close(); run.disabled = false; refreshAll(); });
@@ -170,7 +196,7 @@
         type: "bar",
         data: { labels: labels.map(function (l) { return l.replace("_ms", ""); }),
                 datasets: [{ label: "Median seconds per phase (Shadow-Run)", data: vals, borderRadius: 8,
-                             backgroundColor: cs.getPropertyValue("--coral").trim() }] },
+                             backgroundColor: cs.getPropertyValue("--lav").trim() }] },
         options: { responsive: true, plugins: { legend: { labels: { color: cs.getPropertyValue("--text").trim() } } },
                    scales: { x: { ticks: { color: cs.getPropertyValue("--muted").trim() } }, y: { beginAtZero: true, ticks: { color: cs.getPropertyValue("--muted").trim() } } } }
       });
@@ -255,6 +281,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     var page = document.body.dataset.page;
+    initShared();
     if (page === "overview") initOverview();
     if (page === "demo") initDemo();
   });

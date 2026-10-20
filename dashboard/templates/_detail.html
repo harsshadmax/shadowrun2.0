@@ -1,41 +1,70 @@
+{% from "_macros.html" import decision_chip, state_chip %}
 {% if not run %}
-<div class="card-head"><h2>Run detail</h2></div>
-<p class="empty">No runs yet. Press Run scan, then pick a run to see its timeline and evidence.</p>
+<div class="card-head"><h2>Latest run</h2></div>
+<p class="empty">No runs yet. Press Run scan, then pick a run to see its timeline, evidence and sandbox health at that moment.</p>
 {% else %}
-<div class="card-head">
-  <h2>Run detail</h2>
-  {% if run.decision == 'ALLOW' %}<span class="chip ok">Allowed</span>
-  {% elif run.decision == 'BLOCK' %}<span class="chip bad">Blocked</span>
-  {% elif run.decision == 'ESCALATE' %}<span class="chip warn">Needs review</span>
-  {% elif run.decision == 'NONE' %}<span class="chip neutral">Unguarded</span>
-  {% else %}<span class="chip neutral">{{ run.state }}</span>{% endif %}
+{% set ev = run.report.get('evidence') %}
+<div class="rp-head">
+  <div>
+    <span class="muted small">Run started {{ run.created_at|hms }} UTC · decision in {{ run.decision_ms|secs }}</span>
+    <h2 class="rp-title">{{ run.package_name }}{% if run.package_version %} <small>{{ run.package_version }}</small>{% endif %}</h2>
+  </div>
+  <div class="rp-chips">
+    {{ decision_chip(run.decision, run.state, run.indeterminate) }}
+    <span class="chip neutral mono" title="run id">#{{ run.id }}</span>
+    <span class="chip neutral">{{ run.setup }}</span>
+    <span class="chip neutral mono" title="SHA-256 of the analyzed file">{{ (run.sha256 or 'no hash')[:12] }}</span>
+  </div>
 </div>
-<div class="kv"><span>Run</span><b class="mono">#{{ run.id }}</b></div>
-<div class="kv"><span>Package</span><b>{{ run.package_name }}{% if run.package_version %} {{ run.package_version }}{% endif %}</b></div>
-<div class="kv"><span>SHA-256</span><b class="mono">{{ (run.sha256 or '-')[:16] }}</b></div>
-<div class="kv"><span>Setup</span><b>{{ run.setup }}</b></div>
 
-{% if run.timeline %}
-<ol class="timeline">
-  {% for t in run.timeline %}
-  <li><span class="t-dot"></span><span class="t-label">{{ t.label }}</span><span class="t-ms">{{ t.ms|secs }}</span></li>
-  {% endfor %}
-</ol>
-{% endif %}
+<div class="rp-grid">
+  <div>
+    <h3>Evidence</h3>
+    {% if run.findings %}
+    <ul class="findings">
+      {% for f in run.findings[:5] %}
+      <li><span class="sev {{ f.severity }}">{{ f.severity }}</span><span class="rule">{{ f.rule_id }}</span>{{ f.message }}</li>
+      {% endfor %}
+      {% if run.findings|length > 5 %}<li class="empty">+ {{ run.findings|length - 5 }} more</li>{% endif %}
+    </ul>
+    {% elif run.decision %}
+    <p class="empty">No findings in the tested run (limited evidence).</p>
+    {% endif %}
+    {% if run.decision_reason %}<p class="reason">{{ run.decision_reason }}</p>{% endif %}
+  </div>
 
-{% if run.findings %}
-<h3>Evidence</h3>
-<ul class="findings compact">
-  {% for f in run.findings[:4] %}
-  <li><span class="sev {{ f.severity }}">{{ f.severity }}</span><span class="rule">{{ f.rule_id }}</span>{{ f.message }}</li>
-  {% endfor %}
-  {% if run.findings|length > 4 %}<li class="empty">+ {{ run.findings|length - 4 }} more</li>{% endif %}
-</ul>
-{% elif run.decision %}
-<p class="empty">No findings in the tested run.</p>
-{% endif %}
+  <div>
+    <h3>Phase timing</h3>
+    {% if run.timeline %}
+    <ol class="bars">
+      {% for t in run.timeline %}
+      <li><span class="b-label">{{ t.label }}</span><span class="b-track"><span class="b-fill" style="width: {{ t.pct }}%"></span></span><span class="b-ms">{{ t.ms|secs }}</span></li>
+      {% endfor %}
+    </ol>
+    {% else %}<p class="empty">No phase timings recorded for this run.</p>{% endif %}
 
-<div class="kv"><span>Decision time</span><b>{{ run.decision_ms|secs }}</b></div>
-<div class="kv"><span>Confidence</span><b>limited</b></div>
-{% if run.decision_reason %}<p class="reason">{{ run.decision_reason }}</p>{% endif %}
+    <h3>Trace integrity</h3>
+    {% if ev %}
+    <dl class="kvs">
+      <div><dt>Trace trusted</dt><dd>{{ state_chip('PASS' if ev.trusted else 'FAIL', 'yes' if ev.trusted else 'no') }}</dd></div>
+      <div><dt>SHA-256</dt><dd class="mono">{{ (ev.sha256 or 'none')[:16] }}</dd></div>
+      <div><dt>Size</dt><dd>{{ ev.bytes if ev.bytes is not none else 'n/a' }} bytes · {{ run.report.get('trace_lines', 'n/a') }} lines</dd></div>
+      <div><dt>Completeness</dt><dd>{% if run.report.get('trace_problems') %}{{ run.report.trace_problems|join('; ') }}{% else %}complete{% endif %}</dd></div>
+    </dl>
+    {% else %}<p class="empty">Not recorded for this kind of run.</p>{% endif %}
+
+    <h3>Sandbox health for this run</h3>
+    {% if run.doctor_at_run %}
+    <dl class="kvs">
+      <div><dt>Gated by check</dt><dd class="mono">#{{ run.doctor_at_run.id }} · {{ run.doctor_at_run.checked_at|hms }}</dd></div>
+      <div><dt>Result then</dt><dd>{{ state_chip('PASS' if run.doctor_at_run.ok else 'FAIL') }}</dd></div>
+      <div><dt>Status now</dt><dd>{{ state_chip(run.doctor_relation.label, ('same check' if run.doctor_relation.consistent else run.doctor_relation.label)) }}</dd></div>
+    </dl>
+    <p class="reason">{{ run.doctor_relation.note }}</p>
+    {% else %}
+    <p>{{ state_chip('UNKNOWN', 'UNKNOWN') }}</p>
+    <p class="reason">{{ run.doctor_relation.note }}</p>
+    {% endif %}
+  </div>
+</div>
 {% endif %}

@@ -1,0 +1,29 @@
+{% set names = {'24h': 'previous 24 hours', '7d': 'previous 7 days'} %}
+{% for t in c.cards %}
+<article class="tile tone-{{ t.tone }}">
+  <header class="tile-head">
+    <span class="tile-icon"><svg class="i" aria-hidden="true"><use href="#{{ 'i-block' if t.decision == 'BLOCK' else ('i-check' if t.decision == 'ALLOW' else 'i-alert') }}"/></svg></span>
+    <span class="tile-name"><small>Verdict</small><b>{{ t.label }}</b></span>
+    <button type="button" class="icon-btn" aria-label="Show {{ t.label|lower }} runs"
+            hx-get="/ui/runs?f={{ 'block' if t.decision == 'BLOCK' else ('allow' if t.decision == 'ALLOW' else 'review') }}" hx-target="#activity" hx-swap="innerHTML" data-scroll="#activity"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></button>
+  </header>
+  <div class="tile-main">
+    <span class="tile-label">Runs in window</span>
+    <span class="tile-num">{{ t.count }}<small>{% if c.total %}{{ t.pct }}%{% endif %}</small></span>
+    {% if t.delta is not none %}
+    <span class="delta">{% if t.delta > 0 %}+{{ t.delta }}{% else %}{{ t.delta }}{% endif %} vs {{ names[c.window] }}</span>
+    {% else %}<span class="delta">all time</span>{% endif %}
+    {% if t.indeterminate %}<span class="delta amber">{{ t.indeterminate }} indeterminate (evidence incomplete)</span>{% endif %}
+  </div>
+  <svg class="spark" viewBox="0 0 {{ t.spark.w }} {{ t.spark.h }}" role="img" aria-label="{{ t.label }} runs over the window: {{ t.series|join(', ') }}">
+    {% if t.spark.any %}
+    <path class="area" d="{{ t.spark.area }}"/>
+    <polyline class="line" points="{{ t.spark.points }}"/>
+    <circle class="end" cx="{{ '%.1f' % t.spark.last[0] }}" cy="{{ '%.1f' % t.spark.last[1] }}" r="3"/>
+    {% else %}
+    <line class="flat" x1="4" y1="{{ t.spark.h - 4 }}" x2="{{ t.spark.w - 4 }}" y2="{{ t.spark.h - 4 }}"/>
+    {% endif %}
+  </svg>
+  {% if not t.spark.any %}<span class="spark-note">no {{ t.label|lower }} runs in this window</span>{% endif %}
+</article>
+{% endfor %}

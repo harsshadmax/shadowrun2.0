@@ -1,0 +1,42 @@
+{% from "_macros.html" import state_chip %}
+<div class="card-head">
+  <h2>Sandbox health</h2>
+  {{ state_chip(h.state) }}
+</div>
+<p class="health-meta">
+  {% if h.id %}Check <span class="mono">#{{ h.id }}</span> finished {{ h.finished_at|hms }} UTC · {{ h.age_s|int }}s ago{% else %}No check has run yet.{% endif %}
+  {% if h.busy %}<br>A scan is running; the next check starts after it.{% endif %}
+</p>
+{% if h.state in ('STALE', 'UNKNOWN') %}<p class="notice">{{ h.detail }}. The individual results below are not current.</p>{% endif %}
+{% if h.state == 'FAIL' %}<p class="notice bad">Failing: {{ h.detail }}. Runs are refused until a check passes.</p>{% endif %}
+
+<svg class="iso" viewBox="0 0 320 132" role="img" aria-labelledby="iso-t iso-d">
+  <title id="iso-t">Isolation layout</title>
+  <desc id="iso-d">The agent's install goes through the gate into a sandbox that can reach only the sink. The internet is blocked.</desc>
+  <g class="node"><rect x="2" y="22" width="62" height="34" rx="10"/><text x="33" y="43" text-anchor="middle">Agent</text></g>
+  <g class="node"><rect x="86" y="22" width="62" height="34" rx="10"/><text x="117" y="43" text-anchor="middle">Gate</text></g>
+  <g class="node hot"><rect x="170" y="22" width="70" height="34" rx="10"/><text x="205" y="43" text-anchor="middle">Sandbox</text></g>
+  <g class="node"><rect x="262" y="22" width="56" height="34" rx="10"/><text x="290" y="43" text-anchor="middle">Sink</text></g>
+  <path class="edge" d="M64 39h22M148 39h22M240 39h22"/>
+  <path class="edge dash" d="M205 56v36"/>
+  <g class="node ghost"><rect x="168" y="92" width="74" height="30" rx="10"/><text x="205" y="111" text-anchor="middle">Internet</text></g>
+  <path class="cross" d="M199 68l12 12M211 68l-12 12"/>
+</svg>
+
+<ul class="checks">
+  {% for c in h.checks %}
+  <li>
+    <span title="{{ c.detail }}">{{ c.name }}</span>
+    {% if h.state in ('STALE', 'UNKNOWN') %}{{ state_chip('STALE', 'stale') }}
+    {% elif c.ok is sameas true %}{{ state_chip('PASS', 'pass') }}
+    {% else %}{{ state_chip('FAIL', 'fail') }}{% endif %}
+  </li>
+  {% else %}
+  <li><span class="empty">No results to show.</span></li>
+  {% endfor %}
+</ul>
+
+<div class="health-actions">
+  <button class="btn ghost small" id="recheck" type="button" {% if h.busy %}disabled{% endif %}><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Re-check now</button>
+  <a class="btn ghost small" href="/demo">Open demo</a>
+</div>

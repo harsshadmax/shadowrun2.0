@@ -100,7 +100,7 @@ def _run_gated(spec: str, agent_id: str, run_id: str | None = None, stream: RunS
 
 
 @app.get(f"{API}/health")
-def health():
+def health_check():  # not named `health`: that would shadow the imported shadowrun.health module
     return {"status": "ok"}
 
 

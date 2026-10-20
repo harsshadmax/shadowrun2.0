@@ -19,6 +19,7 @@
     <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 114 2c-.8.6-1.6 1-1.6 2.1M12 16.8v.2"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17v.5"/></symbol>
@@ -29,27 +30,78 @@
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7V5z"/></symbol>
     <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9.5 13.5h.01M14.5 13.5h.01M9 16.5h6"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+    <symbol id="i-matrix" viewBox="0 0 24 24"><rect x="4" y="4" width="4" height="4" rx="1"/><rect x="10" y="4" width="4" height="4" rx="1"/><rect x="16" y="4" width="4" height="4" rx="1"/><rect x="4" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="16" y="10" width="4" height="4" rx="1"/><rect x="4" y="16" width="4" height="4" rx="1"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20V11M12 20V5M18 20v-6"/></symbol>
+    <symbol id="i-chain" viewBox="0 0 24 24"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3A4 4 0 0011 18.7l1-1"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 1112 0v6l1.5 2h-15L6 17zM10 21h4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 8a7.5 7.5 0 00-13.5-1.5M5 4v3h3M5 16a7.5 7.5 0 0013.5 1.5M19 20v-3h-3"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M5 12a7 7 0 107-7H8M8 2L5 5l3 3"/></symbol>
   </defs>
 </svg>
 
-<header class="top">
-  <a class="brand" href="/" aria-label="Shadow-Run home">
-    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.6" fill="var(--coral)"/></svg>
-    <span>Shadow-Run</span>
-  </a>
-  <nav class="pills" aria-label="Main">
-    <a href="/" {% if page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
-    <a href="/demo" {% if page == 'demo' %}aria-current="page"{% endif %}>Split-screen demo</a>
-    <a href="/demo#benchmark">Benchmark</a>
-    <a href="/demo#audit">Audit</a>
-  </nav>
-  <div class="status-box">
-    <span id="doctor" hx-get="/ui/doctor" hx-trigger="load, every 30s" hx-swap="innerHTML"><span class="chip neutral">Doctor: checking…</span></span>
-    <span class="chip sim">SIMULATED SCENARIOS ONLY</span>
-  </div>
-</header>
+<div class="shell">
+  <aside class="side" aria-label="Sidebar">
+    <a class="brand" href="/" aria-label="Shadow-Run home">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h9l5 5v9H10l-5-5V5z" fill="var(--lav)"/><path d="M9 9h4l2 2v4h-4l-2-2V9z" fill="var(--bg)"/></svg>
+      <span><b>Shadow-Run</b><small>Install gate for AI agents</small></span>
+    </a>
 
-<main>{% block main %}{% endblock %}</main>
-<footer>Shadow-Run reduces the chance and blast radius of a malicious install. It does not prove safety.</footer>
+    <div class="seg" role="tablist" aria-label="Section">
+      <a role="tab" href="/" {% if page == 'overview' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}>Overview</a>
+      <a role="tab" href="/demo" {% if page == 'demo' %}class="on" aria-selected="true"{% else %}aria-selected="false"{% endif %}>Demo</a>
+    </div>
+
+    <nav class="nav" aria-label="Main">
+      <a href="/" {% if page == 'overview' %}aria-current="page"{% endif %}><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>Dashboard</a>
+      <a href="/#activity"><svg class="i" aria-hidden="true"><use href="#i-list"/></svg>Scan activity</a>
+      <a href="/#matrix"><svg class="i" aria-hidden="true"><use href="#i-matrix"/></svg>Detection matrix</a>
+      <a href="/#health"><svg class="i" aria-hidden="true"><use href="#i-pulse"/></svg>Sandbox health</a>
+      <a href="/demo" {% if page == 'demo' %}aria-current="page"{% endif %}><svg class="i" aria-hidden="true"><use href="#i-split"/></svg>Split-screen demo</a>
+      <a href="/demo#benchmark"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg>Benchmark</a>
+      <a href="/demo#audit"><svg class="i" aria-hidden="true"><use href="#i-chain"/></svg>Audit chain</a>
+    </nav>
+
+    <section class="side-recent" aria-label="Recent verdicts">
+      <h2>Recent verdicts</h2>
+      <div id="recent" hx-get="/ui/recent" hx-trigger="load, refresh from:body, every 20s" hx-swap="innerHTML"><p class="empty">Loading…</p></div>
+    </section>
+
+    <div class="side-foot">
+      <a class="btn ghost small" href="/api/v1/runs/export.csv" download><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Export CSV</a>
+      <button class="btn ghost small" id="reset-demo" type="button"><svg class="i" aria-hidden="true"><use href="#i-reset"/></svg>Reset demo</button>
+    </div>
+  </aside>
+
+  <div class="content">
+    <header class="top">
+      <div class="env">
+        <span class="env-icon"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg></span>
+        <span class="env-text"><b>Local sandbox</b><small>WSL2 · Docker, internal network</small></span>
+      </div>
+      {% if page == 'overview' %}
+      <button class="btn primary" id="open-scan" type="button">Run scan<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      {% else %}
+      <a class="btn primary" href="/#scan">Run scan<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></a>
+      {% endif %}
+      <span class="spacer"></span>
+      <span id="badge" hx-get="/ui/badge" hx-trigger="load, refresh from:body, every 20s" hx-swap="innerHTML"></span>
+      {% if page == 'overview' %}
+      <label class="search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><span class="sr">Search runs</span>
+        <input type="search" name="q" placeholder="Search runs" autocomplete="off" maxlength="60"
+               hx-get="/ui/runs" hx-trigger="input changed delay:300ms, search" hx-target="#activity" hx-swap="innerHTML"></label>
+      {% endif %}
+      <span id="doctor" hx-get="/ui/doctor" hx-trigger="load, refresh from:body, every 30s" hx-swap="innerHTML"><span class="chip neutral">Doctor: checking…</span></span>
+      <span class="chip sim">SIMULATED SCENARIOS ONLY</span>
+    </header>
+
+    <main>{% block main %}{% endblock %}</main>
+    <footer>Shadow-Run reduces the chance and blast radius of a malicious install. It does not prove safety.</footer>
+  </div>
+</div>
 </body>
 </html>
