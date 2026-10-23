@@ -51,6 +51,7 @@ class RunContext:
     trace_problems: list[str] | None = None  # ParseResult.completeness_problems()
     require_pip_exec: bool = False  # a complete trace must contain pip/python being executed
     wrapper_cmd: str | None = None  # the exact package-side command the sandbox itself starts via `sh -c`
+    init_pid: int | None = None  # pid of the sandbox init (package container PID 1) in marker-mode traces
 
 
 PIP_EXECS = {"pip", "pip3", "python", "python3"}
@@ -116,12 +117,21 @@ def analyze(events: list[Event], ctx: RunContext, cfg: DetectorConfig | None = N
         elif ev.kind == "NET_CONNECT" and ev.family in ("AF_INET", "AF_INET6"):
             if not _is_loopback(ev.addr) and ev.addr != RESOLVER:
                 _add(findings, seen, "NET_OUTBOUND", "high",
-                     f"Outbound connect to {ev.addr}:{ev.port} during an offline install",
-                     addr=ev.addr, port=ev.port)
+                     f"Outbound {ev.syscall} to {ev.addr}:{ev.port} during an offline install",
+                     addr=ev.addr, port=ev.port, syscall=ev.syscall)
+        elif ev.kind == "SYSCALL_EVASION":
+            _add(findings, seen, "EVASION_SYSCALL", "high",
+                 f"Attempted sandbox-evasion syscall {ev.syscall}" + (f" ({ev.path})" if ev.path else ""),
+                 syscall=ev.syscall, path=ev.path)
         elif ev.kind == "PROC_EXEC" and ev.path:
             if (ctx.wrapper_cmd and _norm_exec(ev.path) == "sh" and ev.argv[:2] == ["sh", "-c"]
                     and len(ev.argv) > 2 and ev.argv[2] == ctx.wrapper_cmd):
-                continue  # the sandbox's own launch of the install command (setpriv -> sh -c <install>)
+                continue  # the sandbox's own launch of the install command (sh -c <install>)
+            if ctx.init_pid is not None and ev.pid == ctx.init_pid and _norm_exec(ev.path) == "cat":
+                continue  # the sandbox init parks itself in `cat` when the install command is done
+            if ev.path.lstrip("/").startswith(("memfd:", "fd:")):
+                _add(findings, seen, "EVASION_SYSCALL", "high", f"Executed a file descriptor ({ev.path}), not a file",
+                     syscall=ev.syscall, path=ev.path)
             if _norm_exec(ev.path) not in allowed_exec:
                 _add(findings, seen, "UNEXPECTED_EXEC", "medium", f"Unexpected exec of {ev.path}",
                      path=ev.path, argv=ev.argv[:6])

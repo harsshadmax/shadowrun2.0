@@ -156,7 +156,7 @@ def _run_action(spec, agent_id, setup, pin_sha256, emit, scenario_id, run_id) ->
         pin = pin_sha256 or fetched.sha256
         sink_off = _sink_size()
         emit("phase", {"phase": "sandbox", "state": "start"})
-        audit.append("SANDBOX_STARTED", run_id, {"pin_sha256": pin, "seccomp": sandbox.seccomp_enabled(),
+        audit.append("SANDBOX_STARTED", run_id, {"pin_sha256": pin, "design": "package container + tracer sidecar",
                                                  "doctor_id": status.id, "doctor_checked_at": status.finished_at})
         t = time.perf_counter()
         install_cmd = sandbox.install_command(fetched.name, fetched.version, pin)
@@ -173,7 +173,7 @@ def _run_action(spec, agent_id, setup, pin_sha256, emit, scenario_id, run_id) ->
         time.sleep(0.3)  # let the sink flush
         if ev.trace_text:
             _save_trace(run_id, ev.trace_text)
-        pr = monitor.parse_trace(ev.trace_text)
+        pr = monitor.parse_trace(ev.trace_text, final_exec=sandbox.FINAL_EXEC)
         problems = pr.completeness_problems()
         if ev.strace_rc is None and ev.done:
             problems.append("tracer exit status missing")
@@ -184,7 +184,7 @@ def _run_action(spec, agent_id, setup, pin_sha256, emit, scenario_id, run_id) ->
             hash_mismatch=hash_mismatch_in(res.logs),
             install_failed=res.exit_code not in (0, None), timed_out=res.timed_out,
             evidence_errors=list(ev.errors), evidence_tampered=list(ev.tampered),
-            trace_problems=problems, require_pip_exec=True, wrapper_cmd=install_cmd)
+            trace_problems=problems, require_pip_exec=True, wrapper_cmd=install_cmd, init_pid=pr.final_exec_pid)
         findings = detector.analyze(pr.events, ctx)
         phases["analyze_ms"] = (time.perf_counter() - t) * 1000
         report = {"parse_warnings": pr.parse_warnings, "events": len(pr.events), "exit_code": res.exit_code,

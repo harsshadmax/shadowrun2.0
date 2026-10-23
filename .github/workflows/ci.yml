@@ -1,0 +1,54 @@
+name: ci
+
+# Independent verification: GitHub builds the sandbox from scratch and runs doctor, the full test suite (with the
+# Docker-based sandbox tests, none skipped) and the benchmark on a clean checkout of the commit. The numbers in
+# evidence/ come from the author's machine; this workflow lets anyone reproduce them without trusting that log.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Environment
+        run: |
+          uname -a
+          docker version --format 'docker server {{.Server.Version}}'
+          python --version
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -e .
+      - name: Source hash (compare with evidence/validation.log)
+        run: |
+          git status --short
+          bash scripts/source_hash.sh
+      - name: Build simulated packages
+        run: .venv/bin/python packages/build_all.py
+      - name: Start sandbox services
+        run: bash scripts/up.sh
+      - name: Doctor (must be ALL PASS)
+        run: .venv/bin/python -m shadowrun.cli doctor
+      - name: Full test suite (no test may be skipped)
+        run: |
+          .venv/bin/python -m pytest -q -rs -p no:cacheprovider | tee pytest.out
+          if grep -Eq '[0-9]+ skipped' pytest.out; then echo "tests were skipped: sandbox not fully exercised"; exit 1; fi
+      - name: Benchmark
+        run: |
+          .venv/bin/python -m shadowrun.cli reset
+          .venv/bin/python -m shadowrun.cli eval --repeats 1 | tee bench.out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-output
+          path: |
+            pytest.out
+            bench.out
+            eval/results/results.md

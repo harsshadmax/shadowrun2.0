@@ -145,14 +145,16 @@ def test_garbage_does_not_crash():
 
 @pytest.mark.parametrize("name", ["pip_wheel", "pip_sdist"])
 def test_pip_baseline_has_zero_findings(name):
-    pr = parse_trace((FIX / f"{name}.trace.log").read_text())
+    pr = parse_trace((FIX / f"{name}.trace.log").read_text(), final_exec="cat")
     assert len(pr.events) > 50
-    assert pr.parse_warnings == 0
+    assert pr.parse_warnings == 0 and pr.completeness_problems() == []
     wrapper = (FIX / f"{name}.cmd").read_text()  # the install command the sandbox itself launched via sh -c
     c = ctx()
     c.wrapper_cmd = wrapper
+    c.init_pid = pr.final_exec_pid
     findings = analyze(pr.events, c, DetectorConfig.from_policy())
     assert findings == [], [f.message for f in findings]
+    assert not [e for e in pr.events if e.kind == "SYSCALL_EVASION"]  # pip itself never needs an evasion syscall
 
 
 def test_sh_exec_is_exempt_only_for_the_sandbox_own_command():

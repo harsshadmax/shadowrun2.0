@@ -1,31 +1,58 @@
 """Container runners implementing blueprint section 4.3. No package code ever runs on the host.
 
-Evidence isolation (security fix): in the analysis container the tracer and the package live in different
-privilege domains.
+Privilege design of the analysis sandbox (two containers, one shared PID namespace):
 
-  * strace runs as root (capabilities: SYS_PTRACE, SETUID, SETGID only) and writes the trace to /trace, a
-    root-only tmpfs (mode 0700) that exists only inside the container.
-  * the package runs as the unprivileged host uid, started with `setpriv` under strace. It cannot open, truncate,
-    delete, replace or list anything in /trace, and it cannot signal or ptrace the tracer.
-  * the host fetches the trace with `docker exec` as root, which is a separate channel the package cannot write to,
-    and verifies ownership, mode, size and SHA-256 before the detector sees a single line.
+  package container   user = the host uid, `cap_drop ALL` (CapEff = CapBnd = 0), no-new-privileges, read-only root,
+                      on the internal network. No root process exists in it at all. Its init waits for a `go` file in
+                      a read-only mount, runs the install command, prints the exit status, then parks itself in `cat`.
+  tracer container    root, `cap_drop ALL` + SYS_PTRACE only, NO network, read-only root, no host mounts. Joined to the
+                      package container's PID namespace (`pid_mode=container:<id>`), it runs `strace -f -p 1` and keeps
+                      the trace in a root-only tmpfs that the package container cannot see: it is a different mount
+                      namespace.
+
+  The package cannot read, write, replace or list the trace, cannot signal or ptrace the tracer (different uid, no
+  capabilities), and has no setuid/setgid ability to speak of. The host fetches the trace with `docker exec` into the
+  tracer container and verifies owner, mode, size and SHA-256 before the detector sees a line.
+
+Residual risk, stated plainly: the tracer container is root with CAP_SYS_PTRACE and shares a PID namespace with the
+package container. A kernel or container-runtime vulnerability reachable through ptrace could turn that into a host
+compromise. It has no network, no host mounts and no other capabilities, but it is not a hard boundary. Rootless Docker,
+user-namespace remapping or gVisor/Firecracker would shrink the risk and are on the roadmap.
 """
 import hashlib
 import json
+import re
+import shutil
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import docker
 
-from . import config
+from . import config, monitor
 
-# chdir/clone/fork/vfork are added to the blueprint's list so relative paths can be resolved per process.
-STRACE_SYSCALLS = "openat,open,connect,execve,rename,unlink,mkdir,symlink,chmod,chdir,clone,clone3,fork,vfork"
+STRACE_SYSCALLS = monitor.strace_filter()  # built from the parser's syscall groups so tracer and parser cannot drift
 STRACE_STRSIZE = 4096  # long enough that no realistic path is cut off; truncation is still detected downstream
 TRACE_DIR_IN_BOX = "/trace"
-MAX_TRACE_BYTES = 32 * 1024 * 1024
-EXPECTED_STAT = (0, 0, "600", "regular file")  # uid, gid, mode, type of /trace/trace.log
+MAX_TRACE_BYTES = 64 * 1024 * 1024
+EXPECTED_STAT = (0, 0, "600", "regular file")  # uid, gid, mode, type of /trace/trace.log (inside the tracer container)
+FINAL_EXEC = "cat"  # the package container's init runs this when the install command has finished
+RC_RE = re.compile(r"^SHADOWRUN_RC=(\d+)\s*$", re.M)
+
+PACKAGE_INIT = ('until [ -e /ctl/go ]; do :; done; sh -c "$PACKAGE_CMD"; echo "SHADOWRUN_RC=$?"; exec ' + FINAL_EXEC)
+TRACER_SCRIPT = (
+    "umask 077; "
+    f"strace -f -ttt -yy -s {STRACE_STRSIZE} -e trace={STRACE_SYSCALLS} -o {TRACE_DIR_IN_BOX}/trace.log -p 1 & "
+    f"SP=$!; echo $SP > {TRACE_DIR_IN_BOX}/strace.pid; wait $SP; "
+    f"echo $? > {TRACE_DIR_IN_BOX}/rc; touch {TRACE_DIR_IN_BOX}/done; exec sleep 3600"
+)
+# exit 0 = the package init reached `cat` and no other non-root process is left; 1 = init not finished; 2 = stragglers
+DONE_CHECK = (
+    'case "$(readlink /proc/1/exe)" in */' + FINAL_EXEC + ') ;; *) exit 1;; esac; '
+    'for d in /proc/[0-9]*; do p=${d#/proc/}; [ "$p" = 1 ] && continue; '
+    "u=$(awk '/^Uid:/{print $2}' $d/status 2>/dev/null); [ -n \"$u\" ] && [ \"$u\" != 0 ] && exit 2; done; exit 0"
+)
 
 
 @dataclass
@@ -46,7 +73,7 @@ class Evidence:
     strace_rc: int | None = None
     sha256: str | None = None
     size: int | None = None
-    done: bool = False  # the in-container wrapper reached its end marker
+    done: bool = False  # the tracer wrapper reached its end marker
     errors: list[str] = field(default_factory=list)  # collection problems: evidence unavailable or incomplete
     tampered: list[str] = field(default_factory=list)  # integrity violations: ownership, mode, hash mismatch
 
@@ -57,19 +84,6 @@ class Evidence:
 
 def client() -> docker.DockerClient:
     return docker.from_env()
-
-
-def seccomp_enabled() -> bool:
-    try:
-        return bool(json.loads(config.DOCTOR_STATE.read_text()).get("seccomp_bpf", False))
-    except Exception:
-        return False
-
-
-def strace_prefix(out: str = f"{TRACE_DIR_IN_BOX}/trace.log", seccomp: bool | None = None) -> str:
-    use = seccomp_enabled() if seccomp is None else seccomp
-    flag = "--seccomp-bpf " if use else ""
-    return f"strace -f {flag}-ttt -yy -s {STRACE_STRSIZE} -e trace={STRACE_SYSCALLS} -o {out} "
 
 
 def install_command(name: str, version: str, sha256: str) -> str:
@@ -93,12 +107,14 @@ def _tmpfs(extra: dict | None = None) -> dict:
     return t
 
 
-def _volumes(home: Path | None, cache_dir: Path | None) -> dict:
+def _volumes(home: Path | None, cache_dir: Path | None, ctl: Path | None = None) -> dict:
     v = {}
     if home is not None:
         v[str(home)] = {"bind": "/home/sandbox", "mode": "rw"}
     if cache_dir is not None:
         v[str(cache_dir)] = {"bind": "/cache", "mode": "ro"}
+    if ctl is not None:
+        v[str(ctl)] = {"bind": "/ctl", "mode": "ro"}
     return v
 
 
@@ -142,24 +158,13 @@ def run_container(cmd: str, *, home: Path | None = None, cache_dir: Path | None 
     return ContainerResult(exit_code, logs, ip, timed_out, t0, time.time())
 
 
-def _wrapper_script(seccomp: bool) -> str:
-    """Runs as root inside the analysis container. The package command runs under setpriv as the host uid."""
-    trace = strace_prefix(seccomp=seccomp)
-    return (
-        "umask 077; "
-        f"{trace}setpriv --reuid={config.UID} --regid={config.GID} --clear-groups -- sh -c \"$PACKAGE_CMD\"; "
-        f"echo $? > {TRACE_DIR_IN_BOX}/rc; touch {TRACE_DIR_IN_BOX}/done; "
-        "exec sleep 3600"
-    )
-
-
-def _exec(container, cmd: list[str], timeout_s: float = 10) -> tuple[int, bytes]:
+def _exec(container, cmd: list[str]) -> tuple[int, bytes]:
     res = container.exec_run(cmd, user="0:0", demux=False)
     return res.exit_code, res.output or b""
 
 
 def collect_evidence(container, timed_out: bool) -> Evidence:
-    """Fetch and verify the trace over `docker exec` (a channel the package cannot touch)."""
+    """Fetch and verify the trace over `docker exec` into the tracer container (the package cannot reach it)."""
     ev = Evidence()
     try:
         container.reload()
@@ -202,49 +207,91 @@ def collect_evidence(container, timed_out: bool) -> Evidence:
     return ev
 
 
+def _wait_attached(tracer, pkg, deadline: float) -> bool:
+    """True once the tracer is attached to the package init (TracerPid != 0)."""
+    while time.time() < deadline:
+        tracer.reload()
+        pkg.reload()
+        if tracer.status != "running" or pkg.status != "running":
+            return False
+        code, out = _exec(tracer, ["grep", "-E", r"^TracerPid:\s*[1-9]", "/proc/1/status"])
+        if code == 0 and out:
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, timeout: int = config.TIMEOUT_S,
-                 seccomp: bool | None = None, network: str = config.NETWORK) -> tuple[ContainerResult, Evidence]:
-    """Run `inner_cmd` (package side) under strace with the evidence isolated from the package."""
-    use_seccomp = seccomp_enabled() if seccomp is None else seccomp
+                 network: str = config.NETWORK) -> tuple[ContainerResult, Evidence]:
+    """Run `inner_cmd` (package side) under strace, with the tracer in a separate, network-less sidecar container."""
     c = client()
     t0 = time.time()
-    container = None
+    pkg = tracer = None
+    ctl = config.DATA / "ctl" / uuid.uuid4().hex[:10]
     timed_out = False
     ip = None
     logs = ""
     ev = Evidence(errors=["container did not start"])
     try:
-        container = c.containers.run(
-            config.SANDBOX_IMAGE, ["sh", "-c", _wrapper_script(use_seccomp)], detach=True, network=network,
-            user="0:0", read_only=True,
-            tmpfs=_tmpfs({TRACE_DIR_IN_BOX: "rw,nosuid,nodev,noexec,size=64m,uid=0,gid=0,mode=0700"}),
-            cap_drop=["ALL"], cap_add=["SYS_PTRACE", "SETUID", "SETGID"],
-            security_opt=["no-new-privileges:true"],
+        ctl.mkdir(parents=True, exist_ok=True)
+        ctl.chmod(0o755)
+        pkg = c.containers.run(
+            config.SANDBOX_IMAGE, ["sh", "-c", PACKAGE_INIT], detach=True, network=network,
+            user=f"{config.UID}:{config.GID}", read_only=True, tmpfs=_tmpfs(), stdin_open=True,
+            cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
             mem_limit="512m", nano_cpus=1_000_000_000, pids_limit=128,
-            volumes=_volumes(home, cache_dir), environment=_env({"PACKAGE_CMD": inner_cmd}), working_dir="/work",
+            volumes=_volumes(home, cache_dir, ctl), environment=_env({"PACKAGE_CMD": inner_cmd}), working_dir="/work",
         )
-        container.reload()
-        ip = (container.attrs["NetworkSettings"]["Networks"].get(network) or {}).get("IPAddress")
+        pkg.reload()
+        ip = (pkg.attrs["NetworkSettings"]["Networks"].get(network) or {}).get("IPAddress")
+        tracer = c.containers.run(
+            config.SANDBOX_IMAGE, ["sh", "-c", TRACER_SCRIPT], detach=True, network_mode="none",
+            pid_mode=f"container:{pkg.id}", user="0:0", read_only=True,
+            tmpfs={TRACE_DIR_IN_BOX: "rw,nosuid,nodev,noexec,size=96m,uid=0,gid=0,mode=0700"},
+            cap_drop=["ALL"], cap_add=["SYS_PTRACE"], security_opt=["no-new-privileges:true"],
+            mem_limit="256m", pids_limit=64, working_dir="/",
+        )
         deadline = time.time() + timeout
-        while True:
-            container.reload()
-            if container.status != "running":
-                break
-            if _exec(container, ["test", "-f", f"{TRACE_DIR_IN_BOX}/done"])[0] == 0:
-                break
-            if time.time() > deadline:
-                timed_out = True
-                break
-            time.sleep(0.15)
-        ev = collect_evidence(container, timed_out)
-        logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+        if not _wait_attached(tracer, pkg, min(deadline, time.time() + 10)):
+            ev = Evidence(errors=["tracer could not attach to the package container"])
+        else:
+            (ctl / "go").write_text("go")  # the package init was waiting for this; it is already being traced
+            while True:
+                pkg.reload()
+                if pkg.status != "running":
+                    break
+                if _exec(tracer, ["sh", "-c", DONE_CHECK])[0] == 0:
+                    break
+                if time.time() > deadline:
+                    timed_out = True
+                    break
+                time.sleep(0.15)
+            try:  # stop the tracer cleanly so every event is flushed, then wait for its done marker
+                tracer.reload()
+                if tracer.status == "running":
+                    _exec(tracer, ["sh", "-c", f"kill -INT $(cat {TRACE_DIR_IN_BOX}/strace.pid)"])
+                    for _ in range(100):
+                        if _exec(tracer, ["test", "-f", f"{TRACE_DIR_IN_BOX}/done"])[0] == 0:
+                            break
+                        time.sleep(0.05)
+            except Exception:
+                pass
+            ev = collect_evidence(tracer, timed_out)
+        try:
+            logs = pkg.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+        except Exception:
+            logs = ""
     except Exception as e:
         ev.errors.append(f"sandbox failure: {type(e).__name__}: {e}")
     finally:
-        if container is not None:
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
-    res = ContainerResult(ev.strace_rc, logs, ip, timed_out, t0, time.time())
+        for cont in (tracer, pkg):
+            if cont is not None:
+                try:
+                    cont.remove(force=True)
+                except Exception:
+                    pass
+        shutil.rmtree(ctl, ignore_errors=True)
+    rcs = RC_RE.findall(logs)
+    pkg_rc = int(rcs[-1]) if rcs else None
+    res = ContainerResult(pkg_rc, logs, ip, timed_out, t0, time.time())
     return res, ev

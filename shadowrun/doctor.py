@@ -1,13 +1,10 @@
 """`shadowrun doctor`: self-test of the sandbox. Any FAIL aborts runs (fail closed)."""
-import json
 import os
 import secrets
 import time
 import urllib.request
 
-import docker
-
-from . import canary, config, sandbox
+from . import canary, config, detector, monitor, sandbox
 
 
 def _py(code: str) -> str:
@@ -64,53 +61,110 @@ def check_sink():
     return seen, "sandbox reached sink:9000 and sink logged the POST" if seen else "sink did not log the POST"
 
 
-def _strace_probe(seccomp: bool):
+def check_strace():
+    """The tracer sidecar must attach, record a canary open and a connect, and deliver a complete, trusted trace."""
     cs = canary.create_home("doctor-strace")
     try:
         inner = ("python3 -c \"import urllib.request as u\n"
                  "open('/home/sandbox/.ssh/id_rsa').read()\n"
                  f"try: u.urlopen('http://{config.SINK_NAME}:{config.SINK_PORT}/probe',data=b'x',timeout=5)\n"
                  "except Exception: pass\"")
-        r, ev = sandbox.run_analysis(inner, home=cs.home, timeout=30, seccomp=seccomp)
+        r, ev = sandbox.run_analysis(inner, home=cs.home, timeout=30)
+        pr = monitor.parse_trace(ev.trace_text, final_exec=sandbox.FINAL_EXEC)
+        problems = pr.completeness_problems()
         log = ev.trace_text
-        ok = (ev.trusted and "id_rsa" in log and "connect(" in log and f"htons({config.SINK_PORT})" in log)
-        return ok, r, ev
+        ok = (ev.trusted and not problems and "id_rsa" in log and "connect(" in log
+              and f"htons({config.SINK_PORT})" in log)
+        if ok:
+            return True, "tracer sidecar attached; canary openat + connect to sink:9000 recorded; trace complete and trusted"
+        return False, f"strace probe failed: {'; '.join(ev.errors + ev.tampered + problems) or r.logs.strip()[-300:]}"
     finally:
         canary.cleanup_home(cs)
 
 
-def check_strace():
-    ok, r, ev = _strace_probe(seccomp=True)
-    seccomp = ok
-    if not ok:
-        ok, r, ev = _strace_probe(seccomp=False)
-    config.DOCTOR_STATE.write_text(json.dumps({"seccomp_bpf": seccomp}))
-    if ok:
-        return True, f"strace logged canary openat + connect to sink:9000 (--seccomp-bpf={'on' if seccomp else 'off'})"
-    return False, f"strace probe failed: {'; '.join(ev.errors + ev.tampered) or r.logs.strip()[-300:]}"
-
-
-TAMPER_ATTEMPTS = ["echo x >> /trace/trace.log", ": > /trace/trace.log", "rm /trace/trace.log",
-                   "mv /trace/trace.log /tmp/stolen", "ls /trace", "cp /dev/null /trace/trace.log",
-                   "ln -s /etc/passwd /trace/trace.log", "kill -9 1"]
+# Run INSIDE the package container: everything an attacker could try against the tracer or its evidence.
+ISOLATION_PROBE = r"""
+echo "UID:$(id -u)"
+grep -E '^(CapEff|CapBnd|NoNewPrivs):' /proc/self/status | tr -d ' \t' | sed 's/^/STATUS:/'
+[ -e /trace ] && echo "SUCCEEDED:trace-dir-visible" || echo "BLOCKED:trace-dir-not-visible"
+n=0
+for d in /proc/[0-9]*; do
+  p=${d#/proc/}; [ "$p" = 1 ] && continue
+  u=$(awk '/^Uid:/{print $2}' $d/status 2>/dev/null); [ "$u" = 0 ] || continue
+  n=$((n+1))
+  kill -9 $p 2>/dev/null && echo "SUCCEEDED:kill-root-$p" || echo "BLOCKED:kill-root"
+  cat $d/environ >/dev/null 2>&1 && echo "SUCCEEDED:read-environ-$p" || echo "BLOCKED:read-environ"
+  ls $d/fd >/dev/null 2>&1 && echo "SUCCEEDED:list-fds-$p" || echo "BLOCKED:list-fds"
+  (echo x > $d/mem) 2>/dev/null && echo "SUCCEEDED:write-mem-$p" || echo "BLOCKED:write-mem"
+done
+echo "ROOTPROCS:$n"
+"""
 
 
 def check_evidence_isolation():
-    """The package user must be unable to modify, delete, replace or list the trace, or kill the tracer."""
-    cs = canary.create_home("doctor-tamper")
+    """The package container has no root and no capabilities, cannot see the trace, and cannot touch the tracer."""
+    cs = canary.create_home("doctor-isolation")
     try:
-        # attempts are referred to by index: their text contains shell redirections that must not reach `echo`
-        loop = "; ".join(f"if sh -c '{a}' >/dev/null 2>&1; then echo SUCCEEDED:{i}; else echo BLOCKED:{i}; fi"
-                         for i, a in enumerate(TAMPER_ATTEMPTS))
-        r, ev = sandbox.run_analysis(loop, home=cs.home, timeout=30)
-        succeeded = [TAMPER_ATTEMPTS[int(ln.split(":")[1])] for ln in r.logs.splitlines() if ln.startswith("SUCCEEDED:")]
-        blocked = [ln for ln in r.logs.splitlines() if ln.startswith("BLOCKED:")]
-        ok = (not succeeded and len(blocked) == len(TAMPER_ATTEMPTS) and ev.trusted and bool(ev.trace_text)
-              and ev.strace_rc == 0)
+        r, ev = sandbox.run_analysis(ISOLATION_PROBE, home=cs.home, timeout=40)
+        lines = r.logs.splitlines()
+        succeeded = [ln for ln in lines if ln.startswith("SUCCEEDED:")]
+        blocked = [ln for ln in lines if ln.startswith("BLOCKED:")]
+        uid = next((ln.split(":", 1)[1] for ln in lines if ln.startswith("UID:")), None)
+        status = {k: v for ln in lines if ln.startswith("STATUS:") for k, v in [ln[7:].split(":", 1)]}
+        rootprocs = next((int(ln.split(":", 1)[1]) for ln in lines if ln.startswith("ROOTPROCS:")), 0)
+        caps_zero = (status.get("CapEff") == "0" * 16 and status.get("CapBnd") == "0" * 16
+                     and status.get("NoNewPrivs") == "1")
+        ok = (not succeeded and uid not in (None, "0") and caps_zero and rootprocs >= 1
+              and sum(1 for b in blocked if b == "BLOCKED:kill-root") >= 1 and ev.trusted and bool(ev.trace_text))
         if ok:
-            return True, f"{len(blocked)} tampering attempts blocked; trace intact, root-owned, hash verified"
-        return False, (f"succeeded={succeeded} blocked={len(blocked)}/{len(TAMPER_ATTEMPTS)} "
-                       f"errors={ev.errors + ev.tampered} rc={ev.strace_rc}")
+            return True, (f"package uid {uid}, CapEff=CapBnd=0, no-new-privileges; /trace invisible; "
+                          f"{len(blocked)} attacks on {rootprocs} tracer-side root process(es) all denied; trace intact")
+        return False, (f"uid={uid} caps={status} rootprocs={rootprocs} succeeded={succeeded} blocked={len(blocked)} "
+                       f"errors={ev.errors + ev.tampered}")
+    finally:
+        canary.cleanup_home(cs)
+
+
+# Run INSIDE the package container: calls that bypass openat()/connect() unless the tracer is told about them.
+COVERAGE_PROBE = r"""python3 - <<'EOF'
+import ctypes, socket
+libc = ctypes.CDLL(None, use_errno=True)
+how = (ctypes.c_uint64 * 3)(0, 0, 0)
+fd = libc.syscall(437, -100, b"/home/sandbox/.ssh/id_rsa", ctypes.byref(how), 24)       # openat2 of a canary
+if fd >= 0:
+    libc.close(fd)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+try:
+    s.sendto(b"x", (socket.gethostbyname("sink"), 9000))                                  # sendto, no connect()
+except OSError:
+    pass
+libc.close(libc.syscall(85, b"/home/sandbox/.profile", 0o644))                            # creat
+libc.syscall(265, -100, b"/home/sandbox/.profile", -100, b"/home/sandbox/.bashrc", 0)     # linkat onto .bashrc
+mfd = libc.syscall(319, b"x", 0)                                                          # memfd_create
+libc.syscall(322, mfd, b"", None, None, 0x1000)                                           # execveat(AT_EMPTY_PATH)
+libc.syscall(425, 4, ctypes.byref(how))                                                   # io_uring_setup
+libc.syscall(165, b"none", b"/mnt", b"tmpfs", 0, 0)                                       # mount
+EOF"""
+COVERAGE_EXPECT_CALLS = ["openat2", "sendto", "creat", "linkat", "memfd_create", "execveat", "io_uring_setup", "mount"]
+COVERAGE_EXPECT_RULES = {"CANARY_READ", "NET_OUTBOUND", "PERSISTENCE_WRITE", "EVASION_SYSCALL"}
+
+
+def check_syscall_coverage():
+    """Self-test of what the tracer collects: calls that bypass openat()/connect() must be recorded AND detected."""
+    cs = canary.create_home("doctor-coverage")
+    try:
+        r, ev = sandbox.run_analysis(COVERAGE_PROBE, home=cs.home, timeout=40)
+        pr = monitor.parse_trace(ev.trace_text, final_exec=sandbox.FINAL_EXEC)
+        seen = {e.syscall for e in pr.events}
+        missing = [c for c in COVERAGE_EXPECT_CALLS if c not in seen]
+        ctx = detector.RunContext(canary_paths=list(cs.canary_paths.values()), trace_problems=pr.completeness_problems(),
+                                  init_pid=pr.final_exec_pid)
+        rules = {f.rule_id for f in detector.analyze(pr.events, ctx)}
+        gaps = sorted(COVERAGE_EXPECT_RULES - rules)
+        if ev.trusted and not missing and not gaps:
+            return True, (f"tracer recorded all {len(COVERAGE_EXPECT_CALLS)} bypass syscalls "
+                          f"({', '.join(COVERAGE_EXPECT_CALLS)}) and the detector fired {sorted(COVERAGE_EXPECT_RULES)}")
+        return False, f"missing syscalls={missing} undetected rules={gaps} errors={ev.errors + ev.tampered}"
     finally:
         canary.cleanup_home(cs)
 
@@ -136,10 +190,11 @@ CHECKS = [
     ("shadowrun_net is internal", check_network),
     ("sandbox cannot reach internet", check_no_internet),
     ("sandbox reaches sink:9000", check_sink),
-    ("strace records canary openat + connect", check_strace),
+    ("strace sidecar records canary openat + connect", check_strace),
     ("rootfs read-only, /tmp executable", check_fs),
     ("pypiserver up, sink dir writable", check_host_services),
-    ("package cannot tamper with trace evidence", check_evidence_isolation),
+    ("package has no privileges and cannot reach the tracer", check_evidence_isolation),
+    ("tracer collects the syscalls that bypass openat/connect", check_syscall_coverage),
 ]
 
 

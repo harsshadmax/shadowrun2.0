@@ -77,7 +77,7 @@ Expected last line: `up: sink + pypiserver started`.
 python -m shadowrun.cli doctor
 ```
 
-Expected: eight `[PASS]` lines and `DOCTOR: ALL PASS`.
+Expected: nine `[PASS]` lines and `DOCTOR: ALL PASS`.
 
 **Step 8. Start the dashboard:**
 
@@ -269,17 +269,18 @@ Phases are timed individually (fetch, hash, sandbox, analyze, decide) and shown 
 
 The trap only works if nothing can escape it. `shadowrun doctor` proves each arrow below before every run.
 
+Two containers share one PID namespace. The one that runs untrusted code has **no root and no capabilities**; the only
+root component is a **network-less tracer sidecar** that can do exactly one privileged thing, ptrace.
+
 ```mermaid
 flowchart LR
-    subgraph sbx["Analysis container"]
-        subgraph root["Root domain: strace, trace folder (root-only tmpfs)"]
-            TR["strace<br>records open, connect, exec, writes"]
-            EV[("/trace/trace.log<br>mode 600, root-owned")]
-        end
-        subgraph pkgd["Unprivileged domain: no capabilities, no-new-privileges"]
-            PKG["Package code<br>runs during install"]
-            HOME["Fake home<br>canaries + decoys"]
-        end
+    subgraph pk["Package container: host uid, cap_drop ALL (CapEff = CapBnd = 0), no-new-privileges, read-only root"]
+        PKG["Package code<br>runs during install"]
+        HOME["Fake home<br>canaries + decoys"]
+    end
+    subgraph tc["Tracer sidecar: root, only SYS_PTRACE, NO network, no host mounts, read-only root"]
+        TR["strace -f -p 1<br>joined to the package PID namespace"]
+        EV[("/trace/trace.log<br>root-only tmpfs, invisible to the package")]
     end
     SINK["Sink<br>logs, never answers with data"]
     NET["Real internet"]
@@ -289,7 +290,7 @@ flowchart LR
     PKG -->|"allowed: the only route out"| SINK
     PKG -. "blocked: internal network,<br>no route, no DNS" .-x NET
     PKG -. "blocked: nothing mounted,<br>no socket" .-x HOST
-    PKG -. "blocked: EACCES on every attempt" .-x EV
+    PKG -. "blocked: no such path, and cannot signal<br>or read the root processes" .-x tc
     TR -. "observes" .-> PKG
     TR --> EV
 ```
@@ -298,38 +299,52 @@ flowchart LR
 |---|---|---|
 | Network | `shadowrun_net` is `internal=True` | Internal flag, `1.1.1.1` unreachable, `example.com` does not resolve |
 | Sink reachable | Sandbox can POST to `sink:9000` only | Round trip logged by the sink |
-| Observation | `strace -f` with a pinned syscall list | Records a canary `openat` and a `connect` |
+| Observation | `strace -f -p 1` from the sidecar, with a syscall list built from the parser's groups | Records a canary `openat` and a `connect` |
+| Syscall coverage | Opens (`open`, `openat`, `openat2`, `creat`), exec (`execve`, `execveat`), network (`connect`, `sendto`, `sendmsg`, `sendmmsg`), path changes (`rename*`, `link*`, `symlink*`, `unlink*`, `mkdir*`, `chmod*`, `chown*`, `truncate`, `mknod*`), and evasion attempts (`memfd_create`, `io_uring_*`, `ptrace`, `mount`, `unshare`, `setns`, `bpf`, `kill` aimed at init, ...) | Doctor check 9 runs a probe that uses the bypass calls and requires them to be recorded **and** detected |
 | Filesystem | Read-only root, `/tmp` and `/work` as tmpfs, fake home writable | Write to `/etc` fails, `/tmp` is executable |
-| Privileges | Tracer: root with only `SYS_PTRACE`, `SETUID`, `SETGID`. Package: host uid via `setpriv`, no capabilities, `no-new-privileges` | `CapEff` is zero for the package |
-| Evidence | Trace lives in a root-only tmpfs; the package cannot open, truncate, delete, replace or list it, or signal the tracer | 8 tampering attempts all denied, trace hash verified |
-| Limits | 512 MB, 1 CPU, 128 pids, 30 s timeout, container always removed | Timeout test |
+| Privileges, package | Host uid, `cap_drop ALL`, `no-new-privileges`, no root process | `CapEff` and `CapBnd` are zero, uid is not 0 |
+| Privileges, tracer | Root with **only** `SYS_PTRACE` (no `SETUID`, no `SETGID`), no network, no host mounts, read-only root | Container settings asserted in `tests/test_evidence_isolation.py` |
+| Evidence | Trace lives in the sidecar's root-only tmpfs, a different mount namespace: the package cannot see, open, truncate, replace or list it, or signal the tracer | Attacks on the tracer's root processes all denied, trace hash verified |
+| Limits | 512 MB, 1 CPU, 128 pids, 30 s timeout, containers always removed | Timeout test |
 
 If any doctor check fails, **runs are refused** (fail closed).
 
+**Residual risk.** The tracer is root with `CAP_SYS_PTRACE` in a PID namespace it shares with the package container. It
+has no network, no host mounts and no other capability, but a kernel or container-runtime vulnerability reachable
+through ptrace could still turn it into a host compromise. Rootless Docker, user-namespace remapping or
+gVisor/Firecracker would shrink that risk and are on the roadmap. A package can also still force a denied verdict (for
+example by exhausting the trace size cap); it can never force an allow. The design is documented at the top of
+[`shadowrun/sandbox.py`](shadowrun/sandbox.py) and in `CLAUDE.md`.
+
 ### How the evidence is protected, collected and trusted
 
-Before the 2.0 hardening the trace was written to a folder the package could also write to, so a hostile
-`setup.py` could have erased its own evidence. Now the tracer and the package live in different privilege domains and
-the host fetches the trace over a channel the package cannot reach.
+Originally the trace was written to a folder the package could also write to, so a hostile `setup.py` could have erased
+its own evidence. Then the tracer ran as root inside the package's container and dropped privileges with `setuid`
+(which needed `SETUID`/`SETGID` and a root PID 1). Now the package container has no root at all, and the tracer is a
+separate sidecar. The package's init waits for a `go` file in a read-only mount, so **the tracer is attached before a
+single line of package code runs**.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Host as Host pipeline
-    participant Tr as strace (root)
-    participant Pkg as Package (unprivileged)
+    participant Pkg as Package container (no caps)
+    participant Tr as Tracer sidecar (SYS_PTRACE only)
     participant Det as Detector
 
-    Host->>Tr: start container, wrapper script
-    Tr->>Pkg: setpriv drops to host uid, runs pip install
-    Pkg->>Pkg: tries to wipe or replace /trace/trace.log
-    Note over Pkg: EACCES, and the attempt is itself recorded
-    Pkg-->>Tr: exits
-    Tr->>Tr: writes exit status, done marker
+    Host->>Pkg: start; init waits for /ctl/go (read-only mount)
+    Host->>Tr: start; strace -f -p 1 in the package PID namespace
+    Host->>Tr: wait until TracerPid of init is set
+    Host->>Pkg: create /ctl/go
+    Pkg->>Pkg: sh -c install command, traced from its first instruction
+    Pkg->>Pkg: tries to wipe the trace or kill the tracer
+    Note over Pkg: no such path; EPERM on every signal; the attempts are recorded
+    Pkg->>Pkg: prints SHADOWRUN_RC, init parks itself in cat
+    Host->>Tr: wait for cat and no other non-root process, then SIGINT strace
     Host->>Tr: docker exec: stat, sha256, cat (root)
     Host->>Host: owner 0:0, mode 600, size and hash must match
     Host->>Det: verified trace
-    Det->>Det: complete? (exit notice, no unresumed calls, no cut-off strings, pip seen)
+    Det->>Det: complete? (init ran cat, every traced process exited, no unresumed calls, no cut-off strings, pip seen)
     Det-->>Host: findings, or INCOMPLETE_TRACE / EVIDENCE_UNAVAILABLE / EVIDENCE_TAMPERED
 ```
 
@@ -357,7 +372,8 @@ Missing or partial evidence is never treated as "nothing happened": it produces 
 | `CANARY_EXFIL` | A canary token for this run appears in the sink's data | critical |
 | `HASH_MISMATCH` | pip rejects the file against the pinned SHA-256 | critical |
 | `CANARY_READ` | Package code opens a canary file (even if the open fails) | high |
-| `NET_OUTBOUND` | Any `connect` except loopback and the resolver (the install is offline, so none is legitimate) | high |
+| `NET_OUTBOUND` | Any `connect`, `sendto`, `sendmsg` or `sendmmsg` with a destination other than loopback and the resolver (the install is offline, so none is legitimate; datagrams need no `connect`) | high |
+| `EVASION_SYSCALL` | An attempt at `memfd_create`, `io_uring_*`, `ptrace`, `mount`, `unshare`, `setns`, `bpf`, `chroot`, `init_module`, `keyctl`, executing a file descriptor, or signalling the sandbox init. Counts even when the kernel or seccomp refuses it | high |
 | `PERSISTENCE_WRITE` | Write to `.bashrc`, `.profile`, autostart, cron, `authorized_keys` | high |
 | `UNEXPECTED_EXEC` | `execve` of a binary outside the allowed list | medium |
 | `WRITE_OUTSIDE_ALLOWED` | Write outside `/work`, `/tmp`, `/home/sandbox/.cache` | medium |
@@ -590,8 +606,16 @@ server, gVisor or Firecracker.
 - **M3 (time bomb) is allowed.** A clock-triggered payload does not fire in the tested run. Known false negative.
 - **ALLOW is not a safety proof.** Only behaviour during one offline install in one sandbox is observed.
 - **Nothing is installed outside the sandbox**, so "leaked tokens: 0" for Shadow-Run is by construction.
-- The strace syscall list adds `chdir`, `clone`, `clone3`, `fork`, `vfork` to the blueprint's list so relative paths
-  resolve per process. `AF_UNIX` connects are parsed but not flagged. Symlinks are not resolved.
+- **What is not traced cannot be detected.** The tracer collects the syscall groups in `shadowrun/monitor.py` (opens,
+  exec, network sends, path changes, evasion attempts). Anything outside them is invisible: for example `read`/`write`
+  contents, `socket` options, `bind`, and I/O performed through `io_uring` (Docker's default seccomp profile denies
+  `io_uring` here, and attempts are flagged, but that protection depends on the runtime's profile). `AF_UNIX`
+  connects are parsed but not flagged. Symlinks are not resolved. Signals are flagged only when aimed at the sandbox
+  init or at every process.
+- `strace --seccomp-bpf` cannot be used when attaching to a running process, so the tracer stops on every syscall of
+  the traced processes (no seccomp filter). It cost no measurable extra time on the six fixtures but could on
+  syscall-heavy packages; the run timeout then ends in a denied verdict.
+- The tracer sidecar is root with `CAP_SYS_PTRACE` (see the residual-risk note in section 4).
 - `sandbox` time is container start plus install, measured together. A first scan after an idle period also
   includes the doctor self-test, so it shows a longer decision time.
 - Fixtures are assembled by hand because building them would run `setup.py` on the host.

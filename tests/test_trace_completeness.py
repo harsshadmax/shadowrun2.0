@@ -20,18 +20,66 @@ EXEC_PIP = ln(5, "1.0", 'execve("/usr/local/bin/pip", ["pip", "install"], 0x7ff 
 EXIT_OK = ln(5, "2.0", "+++ exited with 0 +++")
 
 
-def rules(text, **ctx_kw):
-    pr = monitor.parse_trace(text)
-    ctx = RunContext(canary_paths=CANARIES, trace_problems=pr.completeness_problems(), require_pip_exec=True, **ctx_kw)
+def rules(text, final_exec=None, **ctx_kw):
+    pr = monitor.parse_trace(text, final_exec=final_exec)
+    ctx = RunContext(canary_paths=CANARIES, trace_problems=pr.completeness_problems(), require_pip_exec=True,
+                     init_pid=pr.final_exec_pid, **ctx_kw)
     return {f.rule_id for f in analyze(pr.events, ctx, CFG)}
 
 
 @pytest.mark.parametrize("name", ["pip_wheel", "pip_sdist"])
 def test_real_baselines_are_complete(name):
-    pr = monitor.parse_trace((FIX / f"{name}.trace.log").read_text())
+    text = (FIX / f"{name}.trace.log").read_text()
+    pr = monitor.parse_trace(text, final_exec="cat")
     assert pr.completeness_problems() == []
-    assert (pr.lines, pr.parse_warnings, pr.unresumed, pr.truncated, pr.root_exited) == (pr.lines, 0, 0, 0, True)
-    assert rules((FIX / f"{name}.trace.log").read_text(), wrapper_cmd=(FIX / f"{name}.cmd").read_text()) == set()
+    assert (pr.parse_warnings, pr.unresumed, pr.truncated) == (0, 0, 0)
+    assert pr.final_exec_pid == 1 and pr.descendants_still_running == []
+    assert rules(text, final_exec="cat", wrapper_cmd=(FIX / f"{name}.cmd").read_text()) == set()
+
+
+# ---- marker mode: the tracer is attached to the sandbox init (pid 1), which runs `cat` when the package is done
+INIT_WAIT = ln(1, "0.5", 'openat(AT_FDCWD</>, "/ctl/go", O_RDONLY) = 3</ctl/go>')
+CHILD_EXEC = ln(5, "1.0", 'execve("/usr/local/bin/pip", ["pip", "install"], 0x7ff /* 3 vars */) = 0')
+CHILD_EXIT = ln(5, "2.0", "+++ exited with 0 +++")
+INIT_CAT = ln(1, "2.1", 'execve("/usr/bin/cat", ["cat"], 0x7ff /* 3 vars */) = 0')
+
+
+def test_marker_mode_complete_trace():
+    text = "\n".join([INIT_WAIT, CHILD_EXEC, CHILD_EXIT, INIT_CAT])
+    assert monitor.parse_trace(text, final_exec="cat").completeness_problems() == []
+    assert rules(text, final_exec="cat") == set()
+
+
+def test_marker_mode_missing_completion_marker_is_incomplete():
+    text = "\n".join([INIT_WAIT, CHILD_EXEC, CHILD_EXIT])  # the init never reached `cat`: cut short
+    pr = monitor.parse_trace(text, final_exec="cat")
+    assert any("completion marker missing" in p for p in pr.completeness_problems())
+    assert rules(text, final_exec="cat") == {"INCOMPLETE_TRACE"}
+
+
+def test_marker_mode_a_failed_cat_exec_is_not_the_marker():
+    failed = ln(1, "2.1", 'execve("/usr/local/bin/cat", ["cat"], 0x7ff /* 3 vars */) = -1 ENOENT (No such file or directory)')
+    pr = monitor.parse_trace("\n".join([INIT_WAIT, CHILD_EXEC, CHILD_EXIT, failed]), final_exec="cat")
+    assert pr.final_exec_pid is None and pr.completeness_problems()
+
+
+def test_marker_mode_a_traced_process_that_never_exited_is_incomplete():
+    straggler = ln(6, "1.5", 'openat(AT_FDCWD</work>, "/etc/hosts", O_RDONLY) = 3</etc/hosts>')
+    text = "\n".join([INIT_WAIT, CHILD_EXEC, straggler, CHILD_EXIT, INIT_CAT])  # pid 6 has no exit notice
+    pr = monitor.parse_trace(text, final_exec="cat")
+    assert pr.descendants_still_running == [6]
+    assert any("never exited" in p for p in pr.completeness_problems())
+    assert "INCOMPLETE_TRACE" in rules(text, final_exec="cat")
+
+
+def test_marker_mode_forged_cat_is_not_enough_if_the_child_never_finished():
+    forged = ln(8, "1.2", 'execve("/usr/bin/cat", ["cat"], 0x7ff /* 3 vars */) = 0')  # a package process running cat
+    text = "\n".join([INIT_WAIT, CHILD_EXEC, forged])
+    pr = monitor.parse_trace(text, final_exec="cat")
+    # only the INIT (pid 1) running cat is the completion marker; a package process running cat proves nothing
+    assert pr.final_exec_pid is None and 5 in pr.descendants_still_running
+    assert any("completion marker missing" in p for p in pr.completeness_problems())
+    assert "INCOMPLETE_TRACE" in rules(text, final_exec="cat")
 
 
 def test_minimal_complete_trace_is_fine():
@@ -53,10 +101,10 @@ def test_garbage_and_malformed_records_are_incomplete():
 def test_truncated_trace_without_exit_notice_is_incomplete():
     full = (FIX / "pip_sdist.trace.log").read_text().splitlines()
     cut = "\n".join(full[: len(full) // 2])
-    pr = monitor.parse_trace(cut)
-    assert not pr.root_exited
+    pr = monitor.parse_trace(cut, final_exec="cat")
+    assert pr.final_exec_pid is None
     assert any("cut short" in p for p in pr.completeness_problems())
-    assert "INCOMPLETE_TRACE" in rules(cut)
+    assert "INCOMPLETE_TRACE" in rules(cut, final_exec="cat")
 
 
 def test_unresumed_syscall_is_incomplete():

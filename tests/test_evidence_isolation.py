@@ -1,13 +1,17 @@
-"""Bug 2: the analyzed package must not be able to touch the trace evidence, and any evidence problem is
-tampering or uncertainty, never approval. Sandbox tests need Docker and `scripts/up.sh`; unit tests do not."""
+"""Evidence isolation and the privilege design of the sandbox.
+
+Design under test: a package container with no root and no capabilities, plus a network-less tracer sidecar (root,
+SYS_PTRACE only) that shares its PID namespace and keeps the trace in a mount namespace the package cannot see.
+Sandbox tests need Docker and `scripts/up.sh`; unit tests do not."""
 import hashlib
+import json
 import subprocess
 import sys
 import urllib.request
 
 import pytest
 
-from shadowrun import canary, config, db, pipeline, policy, sandbox
+from shadowrun import canary, config, doctor, monitor, pipeline, policy, sandbox
 from shadowrun.sdist_tool import make_sdist
 
 SANDBOX_UP = False
@@ -84,7 +88,7 @@ def test_collection_failures_are_errors_not_passes(kwargs):
 
 def test_unfinished_wrapper_after_timeout_is_not_an_error_but_trace_is_still_partial():
     ev = sandbox.collect_evidence(FakeContainer(done=False), timed_out=True)
-    assert ev.trusted and not ev.done  # partial trace; completeness (no exit notice) is judged by the parser
+    assert ev.trusted and not ev.done  # partial trace; completeness (completion marker) is judged by the parser
 
 
 def test_oversize_trace_is_refused_not_truncated():
@@ -93,8 +97,8 @@ def test_oversize_trace_is_refused_not_truncated():
 
 
 def test_evidence_failures_map_to_denied_verdicts():
-    from shadowrun.detector import RunContext, analyze
-    cfg = __import__("shadowrun.detector", fromlist=["DetectorConfig"]).DetectorConfig.from_policy()
+    from shadowrun.detector import DetectorConfig, RunContext, analyze
+    cfg = DetectorConfig.from_policy()
     tamper = sandbox.collect_evidence(FakeContainer(stat="1000 1000 600 regular file"), False)
     f = analyze([], RunContext(canary_paths=[], evidence_tampered=tamper.tampered, evidence_errors=tamper.errors,
                                trace_problems=[]), cfg)
@@ -105,58 +109,102 @@ def test_evidence_failures_map_to_denied_verdicts():
     assert d.decision == "ESCALATE" and d.indeterminate
 
 
-def test_container_command_gives_trace_dir_to_root_only():
-    script = sandbox._wrapper_script(False)
-    assert "setpriv" in script and f"--reuid={config.UID}" in script and "/trace/trace.log" in script
-    assert "-o /out" not in script
+# ------------------------------------------------------------------ the privilege design, asserted
+
+def test_scripts_contain_no_privilege_switching():
+    for script in (sandbox.PACKAGE_INIT, sandbox.TRACER_SCRIPT):
+        assert "setpriv" not in script and "setuid" not in script.lower() and "su " not in script
+    assert "-p 1" in sandbox.TRACER_SCRIPT and "-o /trace/trace.log" in sandbox.TRACER_SCRIPT
+    assert "/ctl/go" in sandbox.PACKAGE_INIT and sandbox.PACKAGE_INIT.rstrip().endswith("exec cat")
+
+
+class SpyClient:
+    """Wraps the real docker client and records the arguments of every containers.run call."""
+
+    def __init__(self, real):
+        self._real, self.calls = real, []
+        outer = self
+
+        class Containers:
+            def run(self, image, command=None, **kw):
+                outer.calls.append({"image": image, "command": command, **kw})
+                return outer._real.containers.run(image, command, **kw)
+
+            def __getattr__(self, name):
+                return getattr(outer._real.containers, name)
+        self.containers = Containers()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+@needs_sandbox
+def test_container_privileges_are_what_the_design_says(monkeypatch):
+    spy = SpyClient(sandbox.client())
+    monkeypatch.setattr(sandbox, "client", lambda: spy)
+    cs = canary.create_home("test-privs")
+    try:
+        sandbox.run_analysis("true", home=cs.home, timeout=30)
+    finally:
+        canary.cleanup_home(cs)
+    pkg, tracer = spy.calls
+    # package container: unprivileged, zero capabilities, on the internal network, pid namespace of its own
+    assert pkg["user"] == f"{config.UID}:{config.GID}" and config.UID != 0
+    assert pkg["cap_drop"] == ["ALL"] and not pkg.get("cap_add")
+    assert pkg["security_opt"] == ["no-new-privileges:true"] and pkg["read_only"] is True
+    assert pkg["network"] == config.NETWORK and "pid_mode" not in pkg and not pkg.get("privileged")
+    assert "/trace" not in pkg["tmpfs"] and all(v["bind"] != "/trace" for v in pkg["volumes"].values())
+    assert pkg["volumes"][next(k for k, v in pkg["volumes"].items() if v["bind"] == "/ctl")]["mode"] == "ro"
+    # tracer sidecar: root, ONLY SYS_PTRACE, no network, no host mounts, shares the package PID namespace
+    assert tracer["user"] == "0:0" and tracer["cap_drop"] == ["ALL"] and tracer["cap_add"] == ["SYS_PTRACE"]
+    assert tracer["network_mode"] == "none" and "network" not in tracer
+    assert tracer["pid_mode"].startswith("container:") and tracer["read_only"] is True
+    assert not tracer.get("volumes") and not tracer.get("privileged")
+    assert "/trace" in tracer["tmpfs"] and "mode=0700" in tracer["tmpfs"]["/trace"] and "uid=0" in tracer["tmpfs"]["/trace"]
 
 
 # ------------------------------------------------------------------ sandbox: real containers
 
 @needs_sandbox
-def test_package_user_cannot_modify_delete_replace_or_list_the_trace():
+def test_package_cannot_see_or_touch_the_trace_or_the_tracer():
     cs = canary.create_home("test-tamper")
     try:
-        attempts = ["echo x >> /trace/trace.log", ": > /trace/trace.log", "rm /trace/trace.log",
-                    "mv /trace/trace.log /tmp/stolen", "ls /trace", "ln -s /etc/passwd /trace/trace.log",
-                    "touch /trace/forged", "cat /trace/trace.log", "chmod 777 /trace", "kill -9 1"]
-        loop = "; ".join(f"if sh -c '{a}' >/dev/null 2>&1; then echo SUCCEEDED:{i}; else echo BLOCKED:{i}; fi"
-                         for i, a in enumerate(attempts))
-        res, ev = sandbox.run_analysis(loop, home=cs.home, timeout=40)
+        probe = doctor.ISOLATION_PROBE + (
+            "\nfor a in 'echo x >> /trace/trace.log' 'rm /trace/trace.log' 'ls /trace' 'touch /trace/forged'; do "
+            "sh -c \"$a\" >/dev/null 2>&1 && echo SUCCEEDED:$a || echo BLOCKED:attack; done\n")
+        res, ev = sandbox.run_analysis(probe, home=cs.home, timeout=40)
     finally:
         canary.cleanup_home(cs)
     assert "SUCCEEDED" not in res.logs, res.logs
-    assert res.logs.count("BLOCKED") == len(attempts)
-    assert ev.trusted and ev.done and ev.strace_rc == 0
-    assert "/trace/trace.log" in ev.trace_text  # every attempt was observed by the tracer (and denied)
-    assert "EACCES" in ev.trace_text
+    assert f"UID:{config.UID}" in res.logs
+    assert "CapEff:0000000000000000" in res.logs and "CapBnd:0000000000000000" in res.logs and "NoNewPrivs:1" in res.logs
+    assert "BLOCKED:trace-dir-not-visible" in res.logs and res.logs.count("BLOCKED:attack") == 4
+    assert "ROOTPROCS:0" not in res.logs  # the tracer's root processes were visible, and every attack on them failed
+    assert ev.trusted and ev.done
 
 
 @needs_sandbox
-def test_package_runs_unprivileged_and_cannot_signal_the_tracer():
+def test_package_runs_unprivileged_and_the_exit_status_is_reported():
     cs = canary.create_home("test-uid")
     try:
-        res, ev = sandbox.run_analysis("id -u; id -g; grep -E '^(CapEff|NoNewPrivs)' /proc/self/status",
-                                       home=cs.home, timeout=40)
+        res, ev = sandbox.run_analysis("id -u; id -g; exit 3", home=cs.home, timeout=40)
     finally:
         canary.cleanup_home(cs)
     lines = res.logs.split()
     assert lines[0] == str(config.UID) and lines[1] == str(config.GID)
-    assert "CapEff:\t0000000000000000" in res.logs  # no effective capabilities for the package
-    assert "NoNewPrivs:\t1" in res.logs
-    assert ev.trusted
+    assert res.exit_code == 3 and ev.trusted
 
 
 @needs_sandbox
-def test_strace_failure_means_unavailable_evidence_and_the_package_never_runs(monkeypatch):
-    monkeypatch.setattr(sandbox, "strace_prefix", lambda *a, **k: "strace --definitely-not-a-flag ")
+def test_tracer_failure_means_unavailable_evidence_and_the_package_never_runs(monkeypatch):
+    monkeypatch.setattr(sandbox, "TRACER_SCRIPT", "strace --definitely-not-a-flag -p 1; sleep 30")
     cs = canary.create_home("test-nostrace")
     try:
         res, ev = sandbox.run_analysis("echo package-ran", home=cs.home, timeout=40)
     finally:
         canary.cleanup_home(cs)
     assert not ev.trusted and ev.errors
-    assert "package-ran" not in res.logs
+    assert "package-ran" not in res.logs  # the init waits for the go file, which is only written after attach
 
 
 @needs_sandbox
@@ -166,10 +214,28 @@ def test_timeout_yields_partial_but_flagged_evidence():
         res, ev = sandbox.run_analysis("sleep 60", home=cs.home, timeout=3)
     finally:
         canary.cleanup_home(cs)
-    from shadowrun import monitor
-    assert res.timed_out and not ev.done
-    pr = monitor.parse_trace(ev.trace_text)
-    assert pr.completeness_problems()  # no exit notice: cannot be treated as complete
+    pr = monitor.parse_trace(ev.trace_text, final_exec=sandbox.FINAL_EXEC)
+    assert res.timed_out
+    assert pr.completeness_problems()  # the completion marker never appeared: cannot be treated as complete
+
+
+@needs_sandbox
+def test_a_package_that_tries_to_kill_the_sandbox_init_is_blocked(tmp_path, monkeypatch):
+    """Signals from inside a PID namespace cannot kill its init, so the attack fails; the ATTEMPT is the finding."""
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "k.db")
+    dist = config.ROOT / "packages" / "dist"
+    killer = make_sdist("init-killer", "1.0.0", {"setup.py": (
+        "# SIMULATED TEST FIXTURE. INERT OUTSIDE THE SHADOW-RUN SANDBOX.\n"
+        "import os, signal\nfrom setuptools import setup\n"
+        "try:\n    os.kill(1, signal.SIGKILL)\nexcept Exception:\n    pass\n"
+        "setup(name='init-killer', version='1.0.0', description='SIMULATED TEST FIXTURE', py_modules=[])\n")}, dist, "SIMULATED")
+    try:
+        run = pipeline.run_action("init-killer")
+    finally:
+        killer.unlink(missing_ok=True)
+    rules = {f["rule_id"] for f in run["findings"]}
+    assert run["decision"] == "BLOCK" and "EVASION_SYSCALL" in rules
+    assert "INCOMPLETE_TRACE" not in rules and "EVIDENCE_UNAVAILABLE" not in rules  # the init survived; trace complete
 
 
 # ------------------------------------------------------------------ end to end with a hostile package
@@ -215,12 +281,10 @@ def test_package_that_tries_to_wipe_its_trace_is_still_blocked_with_intact_evide
     assert run["decision"] == "BLOCK"
     assert {"CANARY_READ", "NET_OUTBOUND", "CANARY_EXFIL"} <= rules
     assert "EVIDENCE_TAMPERED" not in rules and "INCOMPLETE_TRACE" not in rules
-    import json
     report = json.loads(run["report_json"])
     assert report["evidence"]["trusted"] and report["evidence"]["sha256"] and report["trace_problems"] == []
-    # the wipe attempts are visible in the evidence the package could not erase
     saved = (config.TRACE_DIR / run["id"] / "trace.log").read_text()
-    assert "/trace/trace.log" in saved and "EACCES" in saved
+    assert "/trace/trace.log" in saved and "ENOENT" in saved  # the wipe attempts are in the evidence, and failed
     assert report["doctor"]["id"]
 
 
@@ -228,7 +292,7 @@ def test_package_that_tries_to_wipe_its_trace_is_still_blocked_with_intact_evide
 def test_pipeline_with_failed_tracer_is_indeterminate_and_denied(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "e2.db")
     subprocess.check_call([sys.executable, str(config.ROOT / "packages" / "build_all.py")], stdout=subprocess.DEVNULL)
-    monkeypatch.setattr(sandbox, "strace_prefix", lambda *a, **k: "strace --definitely-not-a-flag ")
+    monkeypatch.setattr(sandbox, "TRACER_SCRIPT", "strace --definitely-not-a-flag -p 1; sleep 30")
     run = pipeline.run_action("csvtoolkit")
     assert run["decision"] == "ESCALATE" and run["decision_obj"].indeterminate
     assert "EVIDENCE_UNAVAILABLE" in {f["rule_id"] for f in run["findings"]}
@@ -237,11 +301,21 @@ def test_pipeline_with_failed_tracer_is_indeterminate_and_denied(monkeypatch, tm
 
 @needs_sandbox
 def test_parser_crash_is_denied_not_allowed(monkeypatch, tmp_path):
+    from shadowrun import health
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "e3.db")
     subprocess.check_call([sys.executable, str(config.ROOT / "packages" / "build_all.py")], stdout=subprocess.DEVNULL)
+    health.ensure_pass(force=True)  # the doctor itself uses the parser: pass the gate BEFORE breaking it
 
-    def boom(text):
+    def boom(text, *a, **kw):
         raise RuntimeError("parser exploded")
     monkeypatch.setattr(pipeline.monitor, "parse_trace", boom)
     run = pipeline.run_action("csvtoolkit")
     assert run["decision"] == "ESCALATE" and run["decision_obj"].indeterminate and "parser exploded" in run["error"]
+
+
+@needs_sandbox
+def test_doctor_isolation_and_coverage_checks_pass_on_this_machine():
+    ok1, d1 = doctor.check_evidence_isolation()
+    ok2, d2 = doctor.check_syscall_coverage()
+    assert ok1, d1
+    assert ok2, d2

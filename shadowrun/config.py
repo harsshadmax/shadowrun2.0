@@ -8,7 +8,6 @@ SINK_LOG = SINK_DIR / "sink.jsonl"
 TRACE_DIR = DATA / "trace"
 HOMES_DIR = DATA / "homes"
 FETCH_DIR = DATA / "fetch"
-DOCTOR_STATE = DATA / "doctor_state.json"
 
 DB_PATH = Path(os.environ.get("SHADOWRUN_DB", ROOT / "shadowrun.db"))
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
