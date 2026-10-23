@@ -1,13 +1,16 @@
-# Shadow-Run validation 2026-10-20T09:47:29Z
+# Shadow-Run validation 2026-10-23T17:44:48Z
+## Source under test
+branch:        security-fixes-and-redesign
+commit:        d92092be0b94a4f4039f97c433bf21dd5a03e6d2
+tree:          31455ee3017d6148b1977bff8ebb2ee254d20926
+source sha256: 867c2a9603e042be57b6d3db7a3cc66473a5a0b355bf651ff8b547fa943272cf   (bash scripts/source_hash.sh on this commit must print the same)
+working tree:  CLEAN (nothing uncommitted except docs, evidence/ and eval/results/)
 ## Environment
 Linux LAPTOP-CHVMD9OV 6.6.87.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun  5 18:30:46 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
 PRETTY_NAME="Ubuntu 24.04.4 LTS"
 Python 3.12.3
 docker server 29.1.3, client 29.1.3
 strace -- version 6.13
-security-fixes-and-redesign
-857ebe3
-uncommitted files: 1
 up: sink + pypiserver started
 
 $ .venv/bin/python -m shadowrun.cli doctor
@@ -15,10 +18,11 @@ $ .venv/bin/python -m shadowrun.cli doctor
 2. [PASS] shadowrun_net is internal -- shadowrun_net Internal=True
 3. [PASS] sandbox cannot reach internet -- blocked 1.1.1.1 [Errno 101] Network is unreachable | blocked example.com [Errno -3] Temporary failure in name resolution
 4. [PASS] sandbox reaches sink:9000 -- sandbox reached sink:9000 and sink logged the POST
-5. [PASS] strace records canary openat + connect -- strace logged canary openat + connect to sink:9000 (--seccomp-bpf=on)
+5. [PASS] strace sidecar records canary openat + connect -- tracer sidecar attached; canary openat + connect to sink:9000 recorded; trace complete and trusted
 6. [PASS] rootfs read-only, /tmp executable -- rootfs read-only; /tmp executable
 7. [PASS] pypiserver up, sink dir writable -- pypiserver reachable=True; sink dir writable=True
-8. [PASS] package cannot tamper with trace evidence -- 8 tampering attempts blocked; trace intact, root-owned, hash verified
+8. [PASS] package has no privileges and cannot reach the tracer -- package uid 1000, CapEff=CapBnd=0, no-new-privileges; /trace invisible; 9 attacks on 2 tracer-side root process(es) all denied; trace intact
+9. [PASS] tracer collects the syscalls that bypass openat/connect -- tracer recorded all 8 bypass syscalls (openat2, sendto, creat, linkat, memfd_create, execveat, io_uring_setup, mount) and the detector fired ['CANARY_READ', 'EVASION_SYSCALL', 'NET_OUTBOUND', 'PERSISTENCE_WRITE']
 DOCTOR: ALL PASS
 [exit code: 0]
 
@@ -33,18 +37,18 @@ $ .venv/bin/python -m shadowrun.cli reset
 demo reset: runs, findings, agent events and sink log cleared (audit log kept)
 [exit code: 0]
 
-$ .venv/bin/python -m pytest -q -p no:cacheprovider
-........................................................................ [ 30%]
-........................................................................ [ 61%]
-........................................................................ [ 91%]
-...................                                                      [100%]
+$ .venv/bin/python -m pytest -q -rs -p no:cacheprovider
+........................................................................ [ 25%]
+........................................................................ [ 50%]
+........................................................................ [ 75%]
+......................................................................   [100%]
 =============================== warnings summary ===============================
 .venv/lib/python3.12/site-packages/fastapi/testclient.py:1
   /home/harsshad/shadowrun2.0/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-235 passed, 1 warning in 94.31s (0:01:34)
+286 passed, 1 warning in 183.31s (0:03:03)
 [exit code: 0]
 
 $ .venv/bin/python -m shadowrun.cli reset
@@ -52,68 +56,68 @@ demo reset: runs, findings, agent events and sink log cleared (audit log kept)
 [exit code: 0]
 
 $ .venv/bin/python -m shadowrun.cli eval --repeats 3
-eval a9ed6b80: warm-up run (discarded)...
+eval dc8c9405: warm-up run (discarded)...
   B1 no_guard   #1 -> INSTALLED_NO_LEAK
   B1 no_guard   #2 -> INSTALLED_NO_LEAK
   B1 no_guard   #3 -> INSTALLED_NO_LEAK
   B1 name_check #1 -> INSTALLED_NO_LEAK
   B1 name_check #2 -> INSTALLED_NO_LEAK
   B1 name_check #3 -> INSTALLED_NO_LEAK
-  B1 shadowrun  #1 -> ALLOW (1.9s)
-  B1 shadowrun  #2 -> ALLOW (2.1s)
-  B1 shadowrun  #3 -> ALLOW (2.1s)
+  B1 shadowrun  #1 -> ALLOW (3.4s)
+  B1 shadowrun  #2 -> ALLOW (4.1s)
+  B1 shadowrun  #3 -> ALLOW (4.0s)
   B2 no_guard   #1 -> INSTALLED_NO_LEAK
   B2 no_guard   #2 -> INSTALLED_NO_LEAK
   B2 no_guard   #3 -> INSTALLED_NO_LEAK
   B2 name_check #1 -> INSTALLED_NO_LEAK
   B2 name_check #2 -> INSTALLED_NO_LEAK
   B2 name_check #3 -> INSTALLED_NO_LEAK
-  B2 shadowrun  #1 -> ALLOW (3.1s)
-  B2 shadowrun  #2 -> ALLOW (3.1s)
-  B2 shadowrun  #3 -> ALLOW (3.1s)
+  B2 shadowrun  #1 -> ALLOW (5.9s)
+  B2 shadowrun  #2 -> ALLOW (5.6s)
+  B2 shadowrun  #3 -> ALLOW (5.7s)
   B3 no_guard   #1 -> INSTALLED_NO_LEAK
   B3 no_guard   #2 -> INSTALLED_NO_LEAK
   B3 no_guard   #3 -> INSTALLED_NO_LEAK
   B3 name_check #1 -> INSTALLED_NO_LEAK
   B3 name_check #2 -> INSTALLED_NO_LEAK
   B3 name_check #3 -> INSTALLED_NO_LEAK
-  B3 shadowrun  #1 -> ALLOW (2.7s)
-  B3 shadowrun  #2 -> ALLOW (3.1s)
-  B3 shadowrun  #3 -> ALLOW (3.0s)
+  B3 shadowrun  #1 -> ALLOW (5.7s)
+  B3 shadowrun  #2 -> ALLOW (5.7s)
+  B3 shadowrun  #3 -> ALLOW (5.6s)
   M1 no_guard   #1 -> LEAKED
   M1 no_guard   #2 -> LEAKED
   M1 no_guard   #3 -> LEAKED
   M1 name_check #1 -> LEAKED
   M1 name_check #2 -> LEAKED
   M1 name_check #3 -> LEAKED
-  M1 shadowrun  #1 -> BLOCK (3.1s)
-  M1 shadowrun  #2 -> BLOCK (3.0s)
-  M1 shadowrun  #3 -> BLOCK (3.1s)
+  M1 shadowrun  #1 -> BLOCK (5.7s)
+  M1 shadowrun  #2 -> BLOCK (6.0s)
+  M1 shadowrun  #3 -> BLOCK (6.3s)
   M2 no_guard   #1 -> LEAKED
   M2 no_guard   #2 -> LEAKED
   M2 no_guard   #3 -> LEAKED
   M2 name_check #1 -> BLOCKED_BY_NAME
   M2 name_check #2 -> BLOCKED_BY_NAME
   M2 name_check #3 -> BLOCKED_BY_NAME
-  M2 shadowrun  #1 -> BLOCK (3.0s)
-  M2 shadowrun  #2 -> BLOCK (3.0s)
-  M2 shadowrun  #3 -> BLOCK (3.1s)
+  M2 shadowrun  #1 -> BLOCK (5.1s)
+  M2 shadowrun  #2 -> BLOCK (5.5s)
+  M2 shadowrun  #3 -> BLOCK (6.5s)
   M3 no_guard   #1 -> INSTALLED_NO_LEAK
   M3 no_guard   #2 -> INSTALLED_NO_LEAK
   M3 no_guard   #3 -> INSTALLED_NO_LEAK
   M3 name_check #1 -> INSTALLED_NO_LEAK
   M3 name_check #2 -> INSTALLED_NO_LEAK
   M3 name_check #3 -> INSTALLED_NO_LEAK
-  M3 shadowrun  #1 -> ALLOW (3.1s)
-  M3 shadowrun  #2 -> ALLOW (3.1s)
-  M3 shadowrun  #3 -> ALLOW (3.1s)
-# Shadow-Run benchmark (a9ed6b80)
+  M3 shadowrun  #1 -> ALLOW (5.3s)
+  M3 shadowrun  #2 -> ALLOW (5.6s)
+  M3 shadowrun  #3 -> ALLOW (5.5s)
+# Shadow-Run benchmark (dc8c9405)
 
 | Setup | Attacks prevented | Benign wrongly stopped | Canary tokens leaked | Median decision | Max decision |
 |---|---|---|---|---|---|
 | no_guard | 0 of 3 | 0 of 3 | 3 | n/a | n/a |
 | name_check | 1 of 3 | 0 of 3 | 1 | n/a | n/a |
-| shadowrun | 2 of 3 | 0 of 3 | 0 | 3.1s | 3.1s |
+| shadowrun | 2 of 3 | 0 of 3 | 0 | 5.6s | 6.5s |
 
 > Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works on simulated attacks, not real-world detection rates. Latency is dominated by container start and install time and was measured on this machine.
 
@@ -135,8 +139,8 @@ eval a9ed6b80: warm-up run (discarded)...
 | gate | 0.00s |
 | fetch | 0.00s |
 | hash | 0.00s |
-| sandbox | 2.67s |
-| analyze | 0.34s |
+| sandbox | 5.17s |
+| analyze | 0.35s |
 | decide | 0.00s |
 
 Notes: `sandbox` covers container start and the install together (one measurement). `leaked tokens` counts canary tokens that reached the sink from the exposed baselines; Shadow-Run never installs outside its sandbox, so it is 0 by construction. M3 (time bomb) is a known false negative: the clock-triggered payload never fires in the tested run.
@@ -144,6 +148,11 @@ Notes: `sandbox` covers container start and the install together (one measuremen
 [exit code: 0]
 
 $ .venv/bin/python -m shadowrun.cli audit verify
-{"ok": true, "checked": 170, "broken_id": null}
+{"ok": true, "checked": 346, "broken_id": null}
 [exit code: 0]
-== done 09:53:16
+
+## Integrity of the run
+source sha256 before: 867c2a9603e042be57b6d3db7a3cc66473a5a0b355bf651ff8b547fa943272cf
+source sha256 after:  867c2a9603e042be57b6d3db7a3cc66473a5a0b355bf651ff8b547fa943272cf
+result: source unchanged during validation
+== done 17:52:06

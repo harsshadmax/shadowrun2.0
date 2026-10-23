@@ -184,6 +184,17 @@ def test_package_cannot_see_or_touch_the_trace_or_the_tracer():
 
 
 @needs_sandbox
+def test_sandbox_time_is_broken_down_by_stage():
+    cs = canary.create_home("test-phases")
+    try:
+        res, ev = sandbox.run_analysis("true", home=cs.home, timeout=40)
+    finally:
+        canary.cleanup_home(cs)
+    expect = {"package_container_ms", "tracer_container_ms", "attach_ms", "traced_run_ms", "stop_tracer_ms", "collect_ms"}
+    assert expect <= set(res.phases) and all(v >= 0 for v in res.phases.values())
+
+
+@needs_sandbox
 def test_package_runs_unprivileged_and_the_exit_status_is_reported():
     cs = canary.create_home("test-uid")
     try:

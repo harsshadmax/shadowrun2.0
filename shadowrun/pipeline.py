@@ -162,6 +162,7 @@ def _run_action(spec, agent_id, setup, pin_sha256, emit, scenario_id, run_id) ->
         install_cmd = sandbox.install_command(fetched.name, fetched.version, pin)
         res, ev = sandbox.run_analysis(install_cmd, home=cs.home, cache_dir=Path(fetched.cache_dir))
         phases["sandbox_ms"] = (time.perf_counter() - t) * 1000
+        phases.update({f"sandbox_{k}": v for k, v in res.phases.items()})  # where the sandbox time went
         db.update_run(run_id, container_ip=res.container_ip, state="ANALYZING")
         audit.append("SANDBOX_FINISHED", run_id, {"exit_code": res.exit_code, "timed_out": res.timed_out,
                                                   "container_ip": res.container_ip, "trace_sha256": ev.sha256,

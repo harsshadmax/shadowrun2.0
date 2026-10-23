@@ -23,6 +23,7 @@ import hashlib
 import json
 import re
 import shutil
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -48,10 +49,10 @@ TRACER_SCRIPT = (
     f"echo $? > {TRACE_DIR_IN_BOX}/rc; touch {TRACE_DIR_IN_BOX}/done; exec sleep 3600"
 )
 # exit 0 = the package init reached `cat` and no other non-root process is left; 1 = init not finished; 2 = stragglers
-DONE_CHECK = (
+DONE_CHECK = (  # two processes in total (grep, awk), however many processes the package left behind
     'case "$(readlink /proc/1/exe)" in */' + FINAL_EXEC + ') ;; *) exit 1;; esac; '
-    'for d in /proc/[0-9]*; do p=${d#/proc/}; [ "$p" = 1 ] && continue; '
-    "u=$(awk '/^Uid:/{print $2}' $d/status 2>/dev/null); [ -n \"$u\" ] && [ \"$u\" != 0 ] && exit 2; done; exit 0"
+    "grep -H '^Uid:' /proc/[0-9]*/status 2>/dev/null | "
+    "awk -F'[/:\\t]+' '$3 != 1 && $6 != 0 { bad = 1 } END { exit bad ? 2 : 0 }'"
 )
 
 
@@ -209,15 +210,18 @@ def collect_evidence(container, timed_out: bool) -> Evidence:
 
 def _wait_attached(tracer, pkg, deadline: float) -> bool:
     """True once the tracer is attached to the package init (TracerPid != 0)."""
+    polls = 0
     while time.time() < deadline:
-        tracer.reload()
-        pkg.reload()
-        if tracer.status != "running" or pkg.status != "running":
-            return False
         code, out = _exec(tracer, ["grep", "-E", r"^TracerPid:\s*[1-9]", "/proc/1/status"])
         if code == 0 and out:
             return True
-        time.sleep(0.05)
+        polls += 1
+        if code != 0 and polls % 5 == 0:  # only now is it worth asking Docker whether either container died
+            tracer.reload()
+            pkg.reload()
+            if tracer.status != "running" or pkg.status != "running":
+                return False
+        time.sleep(0.03)
     return False
 
 
@@ -232,6 +236,7 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
     ip = None
     logs = ""
     ev = Evidence(errors=["container did not start"])
+    marks = {"start": time.perf_counter()}
     try:
         ctl.mkdir(parents=True, exist_ok=True)
         ctl.chmod(0o755)
@@ -240,10 +245,12 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
             user=f"{config.UID}:{config.GID}", read_only=True, tmpfs=_tmpfs(), stdin_open=True,
             cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
             mem_limit="512m", nano_cpus=1_000_000_000, pids_limit=128,
-            volumes=_volumes(home, cache_dir, ctl), environment=_env({"PACKAGE_CMD": inner_cmd}), working_dir="/work",
+            volumes=_volumes(home, cache_dir, ctl), environment=_env({"PACKAGE_CMD": inner_cmd, "PYTHONDONTWRITEBYTECODE": "1"}),
+            working_dir="/work",
         )
         pkg.reload()
         ip = (pkg.attrs["NetworkSettings"]["Networks"].get(network) or {}).get("IPAddress")
+        marks["package_started"] = time.perf_counter()
         tracer = c.containers.run(
             config.SANDBOX_IMAGE, ["sh", "-c", TRACER_SCRIPT], detach=True, network_mode="none",
             pid_mode=f"container:{pkg.id}", user="0:0", read_only=True,
@@ -251,10 +258,12 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
             cap_drop=["ALL"], cap_add=["SYS_PTRACE"], security_opt=["no-new-privileges:true"],
             mem_limit="256m", pids_limit=64, working_dir="/",
         )
+        marks["tracer_started"] = time.perf_counter()
         deadline = time.time() + timeout
         if not _wait_attached(tracer, pkg, min(deadline, time.time() + 10)):
             ev = Evidence(errors=["tracer could not attach to the package container"])
         else:
+            marks["attached"] = time.perf_counter()
             (ctl / "go").write_text("go")  # the package init was waiting for this; it is already being traced
             while True:
                 pkg.reload()
@@ -265,7 +274,8 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
                 if time.time() > deadline:
                     timed_out = True
                     break
-                time.sleep(0.15)
+                time.sleep(0.05)
+            marks["package_done"] = time.perf_counter()
             try:  # stop the tracer cleanly so every event is flushed, then wait for its done marker
                 tracer.reload()
                 if tracer.status == "running":
@@ -276,7 +286,9 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
                         time.sleep(0.05)
             except Exception:
                 pass
+            marks["tracer_stopped"] = time.perf_counter()
             ev = collect_evidence(tracer, timed_out)
+            marks["collected"] = time.perf_counter()
         try:
             logs = pkg.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
         except Exception:
@@ -284,14 +296,22 @@ def run_analysis(inner_cmd: str, *, home: Path, cache_dir: Path | None = None, t
     except Exception as e:
         ev.errors.append(f"sandbox failure: {type(e).__name__}: {e}")
     finally:
-        for cont in (tracer, pkg):
-            if cont is not None:
-                try:
-                    cont.remove(force=True)
-                except Exception:
-                    pass
+        def _rm(cont):
+            try:
+                cont.remove(force=True)
+            except Exception:
+                pass
+        threads = [threading.Thread(target=_rm, args=(cont,)) for cont in (tracer, pkg) if cont is not None]
+        for t in threads:  # both containers are removed at the same time; neither is needed any more
+            t.start()
+        for t in threads:
+            t.join()
         shutil.rmtree(ctl, ignore_errors=True)
     rcs = RC_RE.findall(logs)
     pkg_rc = int(rcs[-1]) if rcs else None
-    res = ContainerResult(pkg_rc, logs, ip, timed_out, t0, time.time())
+    names = [("start", "package_started", "package_container_ms"), ("package_started", "tracer_started", "tracer_container_ms"),
+             ("tracer_started", "attached", "attach_ms"), ("attached", "package_done", "traced_run_ms"),
+             ("package_done", "tracer_stopped", "stop_tracer_ms"), ("tracer_stopped", "collected", "collect_ms")]
+    phases = {out: (marks[b] - marks[a]) * 1000 for a, b, out in names if a in marks and b in marks}
+    res = ContainerResult(pkg_rc, logs, ip, timed_out, t0, time.time(), phases)
     return res, ev
