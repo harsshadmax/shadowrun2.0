@@ -1,4 +1,4 @@
-# Recorded demo run (2026-10-20T10:28:17+00:00)
+# Recorded demo run (2026-10-23T18:08:51+00:00)
 
 _SIMULATED scenario: simulated agent, simulated package, fake secrets, sink inside the sandbox network._
 
@@ -6,19 +6,19 @@ Task: **Add CSV export to the report module.**
 
 ## Without Shadow-Run
 
-Leaked canary tokens reaching the sink: **1** (CANARY-2fa6d9fa9249-ssh)
+Leaked canary tokens reaching the sink: **1** (CANARY-e0798fbaafbf-ssh)
 
 ## With Shadow-Run
 
-- `report-export-pro`: **BLOCK** in 3.1s. Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install
-  - critical CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh)
+- `report-export-pro`: **BLOCK** in 5.7s. Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-77d194e1574a-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install
+  - critical CANARY_EXFIL: Canary secret reached the sink (CANARY-77d194e1574a-ssh)
   - high CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa
   - high NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install
-- `csvtoolkit`: **ALLOW** in 3.4s. No suspicious behaviour in the tested run (limited evidence).
+- `csvtoolkit`: **ALLOW** in 5.6s. No suspicious behaviour in the tested run (limited evidence).
 
 ## Agent transcript (SIMULATED AGENT)
 
 1. `PROPOSE` Task: Add CSV export to the report module. I will use `report-export-pro` for the CSV export.
-2. `BLOCKED_NOTICE` `report-export-pro` was blocked by Shadow-Run: Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install
+2. `BLOCKED_NOTICE` `report-export-pro` was blocked by Shadow-Run: Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-77d194e1574a-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install
 3. `CHOOSE_ALT` Using `csvtoolkit` instead.
 4. `CONTINUE` `csvtoolkit` allowed (limited evidence). Wrote /home/harsshad/shadowrun2.0/.data/agent_workspace/report_export.py; task complete.

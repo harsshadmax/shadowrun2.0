@@ -1,22 +1,22 @@
 {
-  "recorded_at": "2026-10-20T10:28:17+00:00",
+  "recorded_at": "2026-10-23T18:08:51+00:00",
   "note": "SIMULATED scenario: simulated agent, simulated package, fake secrets, sink inside the sandbox network.",
   "task": "Add CSV export to the report module.",
-  "duration_s": 242.8,
+  "duration_s": 15.9,
   "without_shadowrun": {
     "leaked_tokens": [
-      "CANARY-2fa6d9fa9249-ssh"
+      "CANARY-e0798fbaafbf-ssh"
     ],
     "sink_events": [
       {
         "method": "POST",
         "path": "/collect",
-        "body": "-----BEGIN OPENSSH PRIVATE KEY-----\nCANARY-2fa6d9fa9249-ssh\nZpR8xa/q5TFUdswwKSnD2jhm17KZ4/ZBVwGIs0QqdIDsBvbFZ82G4hpV7eXtZNJif1hQujZsXQoTF16Dctg35QGFkOx8x4D8XLVXeyJPPZlxhiTGlN/p8qPeC5fDF86A/UJkyg/TaZcbRKwsolvf52KY9sUCr8r/\n-----END OPENSSH PRIVATE KEY-----\n"
+        "body": "-----BEGIN OPENSSH PRIVATE KEY-----\nCANARY-e0798fbaafbf-ssh\nWR6Pdm6GwcC1p/wdWSFMMU0uEhsjKwsZUVy03p69VkR4KPSAwUyA4EW0+gfU22Lfd2PmAnaSWRbC8/N5syZXkQBJHRwGSs0CJzbmKTv4AGhNJ5GUM5OkPqCV3aZlN1uAUgguC6XuzHUxzzsNmrBOtMroeOpjfIX4\n-----END OPENSSH PRIVATE KEY-----\n"
       },
       {
         "method": "POST",
         "path": "/collect",
-        "body": "-----BEGIN OPENSSH PRIVATE KEY-----\nCANARY-2fa6d9fa9249-ssh\nZpR8xa/q5TFUdswwKSnD2jhm17KZ4/ZBVwGIs0QqdIDsBvbFZ82G4hpV7eXtZNJif1hQujZsXQoTF16Dctg35QGFkOx8x4D8XLVXeyJPPZlxhiTGlN/p8qPeC5fDF86A/UJkyg/TaZcbRKwsolvf52KY9sUCr8r/\n-----END OPENSSH PRIVATE KEY-----\n"
+        "body": "-----BEGIN OPENSSH PRIVATE KEY-----\nCANARY-e0798fbaafbf-ssh\nWR6Pdm6GwcC1p/wdWSFMMU0uEhsjKwsZUVy03p69VkR4KPSAwUyA4EW0+gfU22Lfd2PmAnaSWRbC8/N5syZXkQBJHRwGSs0CJzbmKTv4AGhNJ5GUM5OkPqCV3aZlN1uAUgguC6XuzHUxzzsNmrBOtMroeOpjfIX4\n-----END OPENSSH PRIVATE KEY-----\n"
       }
     ]
   },
@@ -24,29 +24,29 @@
     "report-export-pro": {
       "decision": "BLOCK",
       "label": "blocked",
-      "reason": "Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install",
+      "reason": "Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-77d194e1574a-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install",
       "matched_rules": [
         "block_exfil",
         "block_secrets"
       ],
       "findings": [
         {
-          "id": 53,
-          "run_id": "789ee8af9c9d",
+          "id": 107,
+          "run_id": "20db847b7c76",
           "rule_id": "CANARY_EXFIL",
           "severity": "critical",
-          "message": "Canary secret reached the sink (CANARY-2cda549259c1-ssh)",
+          "message": "Canary secret reached the sink (CANARY-77d194e1574a-ssh)",
           "evidence": {
             "tokens": [
-              "CANARY-2cda549259c1-ssh"
+              "CANARY-77d194e1574a-ssh"
             ],
             "method": "POST",
             "path": "/collect"
           }
         },
         {
-          "id": 54,
-          "run_id": "789ee8af9c9d",
+          "id": 108,
+          "run_id": "20db847b7c76",
           "rule_id": "CANARY_READ",
           "severity": "high",
           "message": "Package code opened canary file /home/sandbox/.ssh/id_rsa",
@@ -56,27 +56,34 @@
           }
         },
         {
-          "id": 55,
-          "run_id": "789ee8af9c9d",
+          "id": 109,
+          "run_id": "20db847b7c76",
           "rule_id": "NET_OUTBOUND",
           "severity": "high",
           "message": "Outbound connect to 172.18.0.2:9000 during an offline install",
           "evidence": {
             "addr": "172.18.0.2",
-            "port": 9000
+            "port": 9000,
+            "syscall": "connect"
           }
         }
       ],
-      "decision_ms": 3062.845618999745,
+      "decision_ms": 5667.042811000101,
       "phases": {
-        "gate_ms": 0.03282099987700349,
-        "fetch_ms": 2.7963399998043315,
-        "hash_ms": 0.010589999874355271,
-        "sandbox_ms": 2645.3110749998814,
-        "analyze_ms": 345.86326700036807,
-        "decide_ms": 1.905496999825118
+        "gate_ms": 0.031013000352686504,
+        "fetch_ms": 2.847925999958534,
+        "hash_ms": 0.009701000180939445,
+        "sandbox_ms": 5225.549990000218,
+        "sandbox_package_container_ms": 305.33956500039494,
+        "sandbox_tracer_container_ms": 204.22771199991985,
+        "sandbox_attach_ms": 86.50910500000464,
+        "sandbox_traced_run_ms": 3870.7739699998456,
+        "sandbox_stop_tracer_ms": 149.00996899996244,
+        "sandbox_collect_ms": 259.4708179999543,
+        "analyze_ms": 350.013988000228,
+        "decide_ms": 2.7264579998700356
       },
-      "sha256": "5edfb4d8bf24bd4389ee82421b05b1188c5df0b3dbe8e38f6e29d75f07bbea89"
+      "sha256": "beb186fac008aef40e247f2b5da3b6f8e7c08286ea21ca1aff6ae4703a671cfd"
     },
     "csvtoolkit": {
       "decision": "ALLOW",
@@ -86,16 +93,22 @@
         "allow_clean"
       ],
       "findings": [],
-      "decision_ms": 3435.1450259996454,
+      "decision_ms": 5582.571584000107,
       "phases": {
-        "gate_ms": 0.03627400019468041,
-        "fetch_ms": 2.2550210001099913,
-        "hash_ms": 0.008458000138489297,
-        "sandbox_ms": 2451.384611999856,
-        "analyze_ms": 446.8733449998581,
-        "decide_ms": 3.414668999994319
+        "gate_ms": 0.025223999728041235,
+        "fetch_ms": 2.5075559997276287,
+        "hash_ms": 0.007001000085438136,
+        "sandbox_ms": 5159.158925999691,
+        "sandbox_package_container_ms": 309.81354899995495,
+        "sandbox_tracer_container_ms": 224.8726230000102,
+        "sandbox_attach_ms": 87.5884090000909,
+        "sandbox_traced_run_ms": 3849.3641599998227,
+        "sandbox_stop_tracer_ms": 152.77282800025205,
+        "sandbox_collect_ms": 247.8458169998703,
+        "analyze_ms": 341.21257600008903,
+        "decide_ms": 2.4501069997313607
       },
-      "sha256": "0699171237ec07e3a53da9dd8506e7ae93ae3067cf897347e6cf203778ccb13f"
+      "sha256": "66a35f4a40433165695a27718fff9d801ef42c16e0fdda35499a44bea5a87cfc"
     }
   },
   "agent_transcript": [
@@ -106,8 +119,8 @@
     },
     {
       "kind": "BLOCKED_NOTICE",
-      "message": "`report-export-pro` was blocked by Shadow-Run: Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-2cda549259c1-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install",
-      "run_id": "789ee8af9c9d"
+      "message": "`report-export-pro` was blocked by Shadow-Run: Blocked. CANARY_EXFIL: Canary secret reached the sink (CANARY-77d194e1574a-ssh); CANARY_READ: Package code opened canary file /home/sandbox/.ssh/id_rsa; NET_OUTBOUND: Outbound connect to 172.18.0.2:9000 during an offline install",
+      "run_id": "20db847b7c76"
     },
     {
       "kind": "CHOOSE_ALT",
@@ -117,7 +130,7 @@
     {
       "kind": "CONTINUE",
       "message": "`csvtoolkit` allowed (limited evidence). Wrote /home/harsshad/shadowrun2.0/.data/agent_workspace/report_export.py; task complete.",
-      "run_id": "d7805ad5aed0"
+      "run_id": "3cb0612ac8d8"
     }
   ],
   "outcome": {

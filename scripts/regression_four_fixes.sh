@@ -9,7 +9,8 @@ OUT=evidence/regression_four_fixes.txt
     "BUG 1 shared health status  tests/test_health.py" \
     "BUG 2 trace evidence isolation  tests/test_evidence_isolation.py" \
     "BUG 3 registry allowlist  tests/test_fetcher.py" \
-    "BUG 4 incomplete evidence  tests/test_trace_completeness.py"; do
+    "BUG 4 incomplete evidence  tests/test_trace_completeness.py" \
+    "REVIEW unmonitored syscalls  tests/test_syscall_coverage.py"; do
     file="${spec##* }"
     label="${spec% *}"
     echo; echo "## $label"

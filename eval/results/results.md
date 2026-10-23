@@ -1,10 +1,10 @@
-# Shadow-Run benchmark (dc8c9405)
+# Shadow-Run benchmark (1b92c452)
 
 | Setup | Attacks prevented | Benign wrongly stopped | Canary tokens leaked | Median decision | Max decision |
 |---|---|---|---|---|---|
 | no_guard | 0 of 3 | 0 of 3 | 3 | n/a | n/a |
 | name_check | 1 of 3 | 0 of 3 | 1 | n/a | n/a |
-| shadowrun | 2 of 3 | 0 of 3 | 0 | 5.6s | 6.5s |
+| shadowrun | 2 of 3 | 0 of 3 | 0 | 5.4s | 5.7s |
 
 > Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works on simulated attacks, not real-world detection rates. Latency is dominated by container start and install time and was measured on this machine.
 
@@ -26,8 +26,8 @@
 | gate | 0.00s |
 | fetch | 0.00s |
 | hash | 0.00s |
-| sandbox | 5.17s |
-| analyze | 0.35s |
+| sandbox | 4.97s |
+| analyze | 0.34s |
 | decide | 0.00s |
 
 Notes: `sandbox` covers container start and the install together (one measurement). `leaked tokens` counts canary tokens that reached the sink from the exposed baselines; Shadow-Run never installs outside its sandbox, so it is 0 by construction. M3 (time bomb) is a known false negative: the clock-triggered payload never fires in the tested run.

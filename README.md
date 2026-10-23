@@ -93,7 +93,7 @@ Leave this terminal open. It prints nothing while it works.
 **Step 10. Try it.**
 
 1. Press **Run scan** (top left), choose `M1 · report-export-pro`, press **Run**. Expect **BLOCKED** with
-   `CANARY_READ`, `NET_OUTBOUND` and `CANARY_EXFIL` after about 3 seconds.
+   `CANARY_READ`, `NET_OUTBOUND` and `CANARY_EXFIL` after about 5 seconds.
 2. Run `B2 · csvtoolkit`. Expect **ALLOWED**.
 3. Open the **Demo** tab in the sidebar and press **Start demo** to see the same install with and without the gate,
    and the simulated agent switching to a safe package.
@@ -228,7 +228,7 @@ flowchart TB
 
 ## 3. Anatomy of one scan
 
-What happens between "install this" and the verdict (about 2.5 to 3 seconds once the sandbox is warm).
+What happens between "install this" and the verdict (about 5 seconds once the sandbox is warm; the tracer runs in a sidecar container, see section 9 for the timing breakdown).
 
 ```mermaid
 sequenceDiagram
@@ -511,7 +511,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | no_guard | 0 of 3 | 0 of 3 | 3 | n/a | n/a |
 | name_check | 1 of 3 (the typosquat) | 0 of 3 | 1 | n/a | n/a |
-| shadowrun | 2 of 3 (the time bomb slips through) | 0 of 3 | 0 | 3.1 s | 3.1 s |
+| shadowrun | 2 of 3 (the time bomb slips through) | 0 of 3 | 0 | 5.4 s | 5.7 s |
 
 > Small demo benchmark: 6 self-written, simulated packages, 3 runs each. It shows the mechanism works on simulated
 > attacks, not real-world detection rates. Latency is dominated by container start and install time and was measured
@@ -520,13 +520,31 @@ flowchart LR
 Reading the table honestly: Shadow-Run's `0` leaked tokens is true **by construction**, because it never installs
 outside its sandbox. The attack it missed is M3. The name check only caught the one attack with a lookalike name.
 
-Detection results are identical before and after the 2.0 hardening, but the median decision time rose from 2.6 s
-(original code, max 3.5 s) to 3.1 s (max 3.1 s). I did not profile where the extra ~0.5 s goes; the evidence is now
-collected over `docker exec` round trips, which is the likely cause. These runs were measured with a warm doctor status
-(`gate` ≈ 0 s). A first run after the status expires (120 s) pays for a full doctor check, about 5 s.
+**The hardening has a latency cost, and this is its measurement.** Detection results are identical to the original code
+(2 of 3 attacks stopped, 0 benign stopped), but the median decision time went from **2.6 s** (original, max 3.5 s) to
+**5.4 s** (max 5.7 s). Profiling one scan (isolated, warm; wheel / sdist) shows where it goes:
 
-Raw output of the validation run (environment, doctor, pytest, benchmark, exit codes) is in
-[`evidence/validation.log`](evidence/validation.log).
+| Stage | Wheel | Sdist | Note |
+|---|---|---|---|
+| Package container start | 0.3 s | 0.3 s | |
+| Tracer sidecar start | 0.2 s | 0.2 s | a second container |
+| Attach, stop tracer, collect trace | 0.4 s | 0.4 s | `docker exec` round trips |
+| Traced install | 1.7 s | 3.3 s | an untraced sdist install takes 1.9 s in one container |
+| Teardown and bookkeeping | ~0.4 s | ~0.4 s | |
+
+The traced install is the largest part: `strace --seccomp-bpf`, which made tracing cheap before, is **refused when
+attaching to a running process** (`strace: --seccomp-bpf is not enabled for processes attached with -p`, checked on
+strace 6.13), so the tracer now stops on every syscall of the traced processes. I tried faster polling, parallel
+teardown and disabling bytecode writes; together they were within measurement noise. The trade is deliberate: roughly
+2x latency for a package container with no root and no capabilities and a tracer that has one capability and no
+network. These runs used a warm doctor status (`gate` ≈ 0 s); a first run after the 120 s status expires also pays for
+a full doctor check of about 10 s.
+
+The validation behind these numbers names the exact source it tested: commit
+`115b66d933e7a19af6de92e2246e23875b8f4bfe`, source hash `b40f2d4b…6539` (`bash scripts/source_hash.sh` on that commit
+prints the same value), clean working tree, source unchanged during the run. Raw output (environment, doctor, pytest,
+benchmark, audit verify, exit codes) is in [`evidence/validation.log`](evidence/validation.log). The same steps run in
+GitHub Actions (`.github/workflows/ci.yml`) so anyone can reproduce them without trusting that log.
 
 ---
 
@@ -613,8 +631,8 @@ server, gVisor or Firecracker.
   connects are parsed but not flagged. Symlinks are not resolved. Signals are flagged only when aimed at the sandbox
   init or at every process.
 - `strace --seccomp-bpf` cannot be used when attaching to a running process, so the tracer stops on every syscall of
-  the traced processes (no seccomp filter). It cost no measurable extra time on the six fixtures but could on
-  syscall-heavy packages; the run timeout then ends in a denied verdict.
+  the traced processes. That roughly doubled decision time (2.6 s to 5.4 s median, see section 9) and would hurt more on
+  syscall-heavy packages; the 30 s run timeout then ends in a denied verdict, never an allow.
 - The tracer sidecar is root with `CAP_SYS_PTRACE` (see the residual-risk note in section 4).
 - `sandbox` time is container start plus install, measured together. A first scan after an idle period also
   includes the doctor self-test, so it shows a longer decision time.
